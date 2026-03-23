@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Global News Admin</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b0f14; color:#e8eef7; margin:0; }
+      header { padding:16px 20px; border-bottom:1px solid #223042; }
+      h1 { margin:0; font-size:16px; letter-spacing:.4px; }
+      .tabs { display:flex; gap:8px; padding:10px 20px; border-bottom:1px solid #223042; }
+      button.tab { background:#132033; border:1px solid #314760; color:#c7d7ea; padding:6px 10px; cursor:pointer; }
+      button.tab.active { background:#1f3f68; color:#fff; border-color:#4f7cb1; }
+      main { padding:18px 20px; }
+      section { display:none; }
+      section.active { display:block; }
+      table { border-collapse: collapse; width:100%; font-size:12px; }
+      th, td { border:1px solid #25394f; padding:6px; text-align:left; vertical-align:top; }
+      th { background:#122236; }
+      code { color:#9be2ff; }
+      .row { display:flex; gap:12px; flex-wrap:wrap; }
+      .card { border:1px solid #25394f; padding:10px; min-width:180px; background:#101a27; }
+      input, select { background:#0d1722; border:1px solid #2a435f; color:#e8eef7; padding:5px; }
+      .muted { color:#9ab0c6; font-size:12px; }
+    </style>
+  </head>
+  <body>
+    <header><h1>Global News Pipeline — Admin Foundation (Phase 6)</h1></header>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="agents">Agents</button>
+      <button class="tab" data-tab="runs">Runs</button>
+      <button class="tab" data-tab="stories">Stories</button>
+      <button class="tab" data-tab="digests">Digests</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+    <main>
+      <section id="overview" class="active">
+        <div class="row" id="overview-cards"></div>
+        <h3>Latest Runs</h3>
+        <table id="overview-table"></table>
+      </section>
+      <section id="agents">
+        <p class="muted">Toggle persisted agent overrides in <code>data/agent-registry.json</code>.</p>
+        <table id="agents-table"></table>
+      </section>
+      <section id="runs">
+        <p class="muted">Most recent 200 rows from run history.</p>
+        <table id="runs-table"></table>
+      </section>
+      <section id="stories">
+        <p class="muted">Recent real story rows captured from pipeline outputs.</p>
+        <table id="stories-table"></table>
+      </section>
+      <section id="digests">
+        <p class="muted">Recent digest snapshots captured from pipeline outputs.</p>
+        <table id="digests-table"></table>
+      </section>
+      <section id="settings">
+        <div class="row">
+          <label>Default Pipeline Mode
+            <select id="s-pipeline-mode"><option>topics</option><option>regions</option></select>
+          </label>
+          <label>Default Orchestrate Mode
+            <select id="s-orchestrate-mode"><option>auto</option><option>force</option><option>dry-run</option></select>
+          </label>
+          <label>Default Log Format
+            <select id="s-log-format"><option>text</option><option>json</option></select>
+          </label>
+          <label>Run History Default
+            <select id="s-run-history"><option value="true">true</option><option value="false">false</option></select>
+          </label>
+          <label>Run Artifacts Default
+            <select id="s-run-artifacts"><option value="true">true</option><option value="false">false</option></select>
+          </label>
+        </div>
+        <p><button id="save-settings">Save Settings</button> <span id="settings-status" class="muted"></span></p>
+      </section>
+    </main>
+    <script>
+      const tabs = [...document.querySelectorAll(".tab")];
+      tabs.forEach((b) => b.onclick = () => {
+        tabs.forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        document.querySelectorAll("main section").forEach((s) => s.classList.remove("active"));
+        document.getElementById(b.dataset.tab).classList.add("active");
+      });
+
+      async function api(path, method="GET", body) {
+        const res = await fetch(path, {
+          method,
+          headers: { "content-type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined
+        });
+        return await res.json();
+      }
+
+      function table(el, cols, rows) {
+        const head = `<tr>${cols.map((c)=>`<th>${c}</th>`).join("")}</tr>`;
+        const body = rows.map((r)=>`<tr>${cols.map((c)=>`<td>${r[c] ?? ""}</td>`).join("")}</tr>`).join("");
+        el.innerHTML = head + body;
+      }
+
+      async function loadOverview() {
+        const data = await api("/api/overview");
+        const cards = document.getElementById("overview-cards");
+        cards.innerHTML = `
+          <div class="card"><div>Total</div><strong>${data.counts.total}</strong></div>
+          <div class="card"><div>Success</div><strong>${data.counts.success}</strong></div>
+          <div class="card"><div>Failure</div><strong>${data.counts.failure}</strong></div>
+        `;
+        table(document.getElementById("overview-table"),
+          ["runId","kind","status","startedAt","finishedAt","pipelineMode","orchestrateMode","slotKey"],
+          data.latest);
+      }
+
+      async function loadAgents() {
+        const data = await api("/api/agents");
+        const el = document.getElementById("agents-table");
+        const cols = ["id","label","stage","mode","enabledTopics","enabledRegions","override","action"];
+        const rows = data.agents.map((a) => ({
+          ...a,
+          action: `<button data-id="${a.id}" data-next="${!(a.override === true)}">set true</button>
+                   <button data-id="${a.id}" data-next="${!(a.override === false)}">set false</button>`
+        }));
+        const head = `<tr>${cols.map((c)=>`<th>${c}</th>`).join("")}</tr>`;
+        const body = rows.map((r)=>`<tr>${cols.map((c)=>`<td>${r[c] ?? ""}</td>`).join("")}</tr>`).join("");
+        el.innerHTML = head + body;
+        el.querySelectorAll("button").forEach((b) => {
+          b.onclick = async () => {
+            const id = b.dataset.id;
+            const enabled = b.textContent.includes("true");
+            await api("/api/agents/toggle", "POST", { id, enabled });
+            await loadAgents();
+          };
+        });
+      }
+
+      async function loadRuns() {
+        const data = await api("/api/runs");
+        table(document.getElementById("runs-table"),
+          ["runId","kind","status","startedAt","finishedAt","pipelineMode","slice","provider","error"],
+          data.rows);
+      }
+
+      async function loadStories() {
+        const data = await api("/api/stories");
+        table(document.getElementById("stories-table"),
+          ["storyId","digestId","pipelineMode","sectionLabel","title","domain","publishedAt"],
+          data.rows);
+      }
+
+      async function loadDigests() {
+        const data = await api("/api/digests");
+        table(document.getElementById("digests-table"),
+          ["digestId","pipelineMode","generatedAt","storyCount","curatedBy","slice","sliceTopics","artifactsRelPath"],
+          data.rows.map((r) => ({ ...r, sliceTopics: (r.sliceTopics || []).join(", ") })));
+      }
+
+      async function loadSettings() {
+        const s = await api("/api/settings");
+        document.getElementById("s-pipeline-mode").value = s.pipelineModeDefault;
+        document.getElementById("s-orchestrate-mode").value = s.orchestrateModeDefault;
+        document.getElementById("s-log-format").value = s.logFormatDefault;
+        document.getElementById("s-run-history").value = String(s.runHistoryEnabledDefault);
+        document.getElementById("s-run-artifacts").value = String(s.runArtifactsEnabledDefault);
+      }
+
+      document.getElementById("save-settings").onclick = async () => {
+        const payload = {
+          pipelineModeDefault: document.getElementById("s-pipeline-mode").value,
+          orchestrateModeDefault: document.getElementById("s-orchestrate-mode").value,
+          logFormatDefault: document.getElementById("s-log-format").value,
+          runHistoryEnabledDefault: document.getElementById("s-run-history").value === "true",
+          runArtifactsEnabledDefault: document.getElementById("s-run-artifacts").value === "true"
+        };
+        await api("/api/settings", "POST", payload);
+        document.getElementById("settings-status").textContent = "saved";
+      };
+
+      loadOverview(); loadAgents(); loadRuns(); loadStories(); loadDigests(); loadSettings();
+    </script>
+  </body>
+</html>

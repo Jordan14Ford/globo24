@@ -1,0 +1,74 @@
+# Runs at times that map to ~09:00 and ~17:30 America/New_York (handles EST/EDT).
+# Final gate: `npm run orchestrate` uses Luxon + `lib/schedule/eastern.ts` (09:00–09:18 / 17:30–17:48 America/New_York).
+# workflow_dispatch: optional force bypasses ET windows (still dedupes per day on manual slot).
+name: Global News Pipeline Digest
+
+permissions:
+  contents: read
+  actions: write # actions/cache restore/save for send-history.json
+
+concurrency:
+  group: global-news-digest-${{ github.repository }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # ~09:00 Eastern: 13:00 UTC (EDT) / 14:00 UTC (EST)
+    - cron: "0 13,14 * * *"
+    # ~17:30 Eastern: 21:30 UTC (EDT) / 22:30 UTC (EST)
+    - cron: "30 21,22 * * *"
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "If true, ORCHESTRATE_MODE=force (bypass schedule windows). If false, same as cron (auto)."
+        type: boolean
+        default: true
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore send history cache
+        uses: actions/cache/restore@v4
+        id: send_cache
+        with:
+          path: data/send-history.json
+          key: send-history-${{ github.repository }}-${{ github.run_id }}
+          restore-keys: |
+            send-history-${{ github.repository }}-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Orchestrate (schedule gate + dedupe + pipeline + send)
+        env:
+          PIPELINE_MODE: ${{ vars.PIPELINE_MODE || 'topics' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MASTER_MODEL: ${{ vars.OPENAI_MASTER_MODEL || 'gpt-4o-mini' }}
+          OPENAI_RANK_MODEL: ${{ vars.OPENAI_RANK_MODEL || 'gpt-4o-mini' }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          # Optional; default subject is set in sendDigest when unset
+          EMAIL_SUBJECT: ${{ secrets.EMAIL_SUBJECT || 'Globo News 24' }}
+          ORCHESTRATE_MODE: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.force_run == 'true' && 'force' || 'auto') || 'auto' }}
+        run: npm run orchestrate
+
+      - name: Save send history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/send-history.json
+          key: send-history-${{ github.repository }}-${{ github.run_id }}

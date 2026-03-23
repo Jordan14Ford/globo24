@@ -1,0 +1,15 @@
+node_modules/
+dist/
+output/
+data/send-history.json
+data/run-history.json
+data/runs/
+data/agent-registry.json
+data/admin-settings.json
+data/stories.json
+data/digests.json
+# Secrets — never commit (use .env.example as template)
+.env
+.env.local
+.env.*.local
+*.log

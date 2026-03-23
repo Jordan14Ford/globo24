@@ -8,6 +8,9 @@ data/agent-registry.json
 data/admin-settings.json
 data/stories.json
 data/digests.json
+# Local-only copy of full README + notes (not published to GitHub)
+private/
+
 # Secrets — never commit (use .env.example as template)
 .env
 .env.local

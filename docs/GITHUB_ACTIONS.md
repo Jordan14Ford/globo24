@@ -2,6 +2,17 @@
 
 **Step-by-step:** **[SETUP_GITHUB_ACTIONS_CHECKLIST.md](./SETUP_GITHUB_ACTIONS_CHECKLIST.md)** (phased checklist aligned with Phase 1 + architecture goals).
 
+### Sync secrets from your machine (CLI)
+
+If **`gh`** is logged in (`gh auth login`) and your **`.env`** is filled:
+
+```bash
+npm run gha:secrets
+# or: npx tsx scripts/syncGithubSecrets.ts --repo YOUR_ORG/YOUR_REPO
+```
+
+This sets **`RESEND_API_KEY`**, **`EMAIL_FROM`**, **`EMAIL_TO`**, and optionally **`EMAIL_SUBJECT`** / **`OPENAI_API_KEY`**. Nothing is printed except key names.
+
 Workflow file: [`.github/workflows/global-news-digest.yml`](../.github/workflows/global-news-digest.yml)
 
 ## Repository layout

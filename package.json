@@ -14,7 +14,8 @@
     "admin": "tsx scripts/adminServer.ts",
     "orchestrate": "tsx scripts/orchestrate.ts",
     "run:all": "tsx scripts/runPipeline.ts && tsx scripts/sendEmail.ts",
-    "run:scheduled": "tsx scripts/orchestrate.ts"
+    "run:scheduled": "tsx scripts/orchestrate.ts",
+    "gha:secrets": "tsx scripts/syncGithubSecrets.ts"
   },
   "engines": {
     "node": ">=20"

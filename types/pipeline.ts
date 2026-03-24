@@ -64,10 +64,46 @@ export interface TopicAgentResult {
 
 export type CuratedBy = "openai" | "keyword_fallback";
 
+/** Reddit “hot” row for the bottom-of-email supplement block. */
+export interface RedditDigestPost {
+  title: string;
+  link: string;
+}
+
+export interface RedditDigestSubsection {
+  label: string;
+  subreddit: string;
+  posts: RedditDigestPost[];
+  error?: string;
+}
+
+export interface EarningsRow {
+  symbol: string;
+  companyName: string;
+  date: string;
+  timeLabel?: string;
+}
+
+/** This week’s earnings + outbound links (calendar, optional YouTube). */
+export interface EarningsDigestSection {
+  weekLabel: string;
+  rows: EarningsRow[];
+  calendarUrl: string;
+  youtubeUrl?: string;
+  fetchError?: string;
+}
+
+export interface DigestBottomPayload {
+  reddit: RedditDigestSubsection[];
+  earnings: EarningsDigestSection;
+}
+
 export interface MasterCuratedOutput {
   generatedAt: string;
   sections: Record<TopicId, NormalizedArticle[]>;
   curatedBy: CuratedBy;
   masterNotes?: string;
   error?: string;
+  /** Reddit hot + earnings week — rendered at the bottom of the HTML/text digest when present. */
+  digestBottom?: DigestBottomPayload;
 }

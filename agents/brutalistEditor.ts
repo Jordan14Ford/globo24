@@ -8,6 +8,7 @@
  * @see docs/ARCHITECTURE.md
  */
 import type {
+  DigestBottomPayload,
   MasterCuratedOutput,
   NormalizedArticle,
   RegionalPipelineOutput,
@@ -270,6 +271,88 @@ export interface EditorialDigestParams {
   curatorFooterLine: string;
   masterNotes?: string;
   error?: string;
+  /** Reddit + earnings block above the small footer table. */
+  digestBottom?: DigestBottomPayload;
+}
+
+function buildDigestBottomHtml(bottom: DigestBottomPayload): string {
+  const subStyle =
+    "font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#8b1e1e;margin:0 0 8px 0;";
+  const metaStyle = "font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#5e5a55;margin:0 0 14px 0;";
+  const linkStyle = "color:#171717;text-decoration:underline;";
+  const liStyle = "margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.35;color:#171717;";
+
+  const redditBlocks = bottom.reddit.map((sec) => {
+    const browseUrl = `https://old.reddit.com/r/${sec.subreddit}/hot/`;
+    const browseRow = `<p style="${metaStyle}"><a href="${esc(browseUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Browse r/${esc(sec.subreddit)} (hot) on Reddit →</a></p>`;
+    const err = sec.error
+      ? `<p style="${metaStyle}">Could not load RSS (some networks block automated fetches): ${esc(sec.error)}</p>`
+      : "";
+    const list =
+      sec.posts.length === 0 && !sec.error
+        ? `<p style="${metaStyle}">No posts in feed.</p>`
+        : sec.error
+          ? ""
+          : `<ul style="margin:0;padding:0 0 0 18px;list-style:disc;">${sec.posts
+              .map(
+                (p) =>
+                  `<li style="${liStyle}"><a href="${esc(p.link)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">${esc(p.title)}</a></li>`
+              )
+              .join("")}</ul>`;
+    return `
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 18px 0;">
+  <tr><td>
+    <div style="${subStyle}">${esc(sec.label)}</div>
+    ${err}${list}
+    ${browseRow}
+  </td></tr>
+</table>`;
+  });
+
+  const e = bottom.earnings;
+  const earnErr = e.fetchError
+    ? `<p style="${metaStyle}">${esc(e.fetchError)}</p>`
+    : "";
+  const earnRows =
+    e.rows.length === 0 && !e.fetchError
+      ? `<p style="${metaStyle}">No rows returned for this week (check FMP key or date range).</p>`
+      : e.rows.length === 0
+        ? ""
+        : `<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171717;">
+  <tr>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Symbol</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Date</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Time</td>
+  </tr>
+  ${e.rows
+    .map(
+      (r) => `<tr>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.symbol)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.date)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.timeLabel ?? "—")}</td>
+  </tr>`
+    )
+    .join("")}
+</table>`;
+
+  const yt = e.youtubeUrl
+    ? ` · <a href="${esc(e.youtubeUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">YouTube</a> (your pick)`
+    : "";
+  const linksRow = `<p style="${metaStyle}"><a href="${esc(e.calendarUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Full earnings calendar</a>${yt}</p>`;
+
+  return `
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:28px;padding-top:22px;border-top:2px solid #d8d1c7;">
+  <tr><td>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#5e5a55;margin-bottom:14px;">More at the bottom</div>
+    <h2 style="margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Reddit — what’s hot</h2>
+    <p style="${metaStyle}">Top posts from each sub (today). Not endorsed — for orientation only.</p>
+    ${redditBlocks.join("\n")}
+    <h2 style="margin:22px 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Earnings this week</h2>
+    <p style="${metaStyle}">${esc(e.weekLabel)} · Times are as reported by the data provider when available.</p>
+    ${earnErr}${earnRows}
+    ${linksRow}
+  </td></tr>
+</table>`;
 }
 
 /**
@@ -283,6 +366,7 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
   const edition = esc(formatEditionDate(p.generatedAt));
   const flat = p.flat;
   const curator = esc(p.curatorFooterLine);
+  const bottomHtml = p.digestBottom ? buildDigestBottomHtml(p.digestBottom) : "";
 
   if (flat.length === 0) {
     return `<!DOCTYPE html>
@@ -292,6 +376,7 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
 <tr><td class="inner" style="padding:28px 28px 36px;">
   <p style="font-family:Georgia,serif;">No stories in this digest. ${err ? `(${err})` : ""}</p>
   <p style="font-family:Arial,sans-serif;font-size:12px;color:#5e5a55;">Generated: ${when} · ${curator}</p>
+  ${bottomHtml}
 </td></tr></table></body></html>`;
   }
 
@@ -353,6 +438,7 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
         ${heroTextBlock(lead.article, lead.sectionLabel)}
         ${bentoHtml}
         ${moreHtml}
+        ${bottomHtml}
 
         <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
           <tr>
@@ -382,6 +468,7 @@ export function buildBrutalistHtml(out: MasterCuratedOutput): string {
     curatorFooterLine: `Curated by ${out.curatedBy}`,
     masterNotes: out.masterNotes,
     error: out.error,
+    digestBottom: out.digestBottom,
   });
 }
 
@@ -435,6 +522,41 @@ export function buildBrutalistPlain(out: MasterCuratedOutput): string {
     }
     rows.push("");
   }
+  rows.push("================================================================");
+
+  if (out.digestBottom) {
+    const b = out.digestBottom;
+    rows.push("");
+    rows.push("--- MORE AT THE BOTTOM (REDDIT HOT) ---");
+    for (const sec of b.reddit) {
+      rows.push("");
+      rows.push(sec.label);
+      if (sec.error) rows.push(`  (error: ${sec.error})`);
+      else if (sec.posts.length === 0) rows.push("  (no posts)");
+      else {
+        sec.posts.forEach((p, i) => {
+          rows.push(`  ${i + 1}. ${p.title}`);
+          rows.push(`     ${p.link}`);
+        });
+      }
+      rows.push(`  Browse hot: https://old.reddit.com/r/${sec.subreddit}/hot/`);
+    }
+    rows.push("");
+    rows.push("--- EARNINGS THIS WEEK ---");
+    rows.push(b.earnings.weekLabel);
+    if (b.earnings.fetchError) rows.push(`Note: ${b.earnings.fetchError}`);
+    if (b.earnings.rows.length) {
+      b.earnings.rows.forEach((r) => {
+        const t = r.timeLabel ? ` · ${r.timeLabel}` : "";
+        rows.push(`  ${r.date}  ${r.symbol}${t}`);
+      });
+    } else if (!b.earnings.fetchError) {
+      rows.push("  (no rows)");
+    }
+    rows.push(`Full calendar: ${b.earnings.calendarUrl}`);
+    if (b.earnings.youtubeUrl) rows.push(`YouTube: ${b.earnings.youtubeUrl}`);
+  }
+
   rows.push("================================================================");
   rows.push("END");
   return rows.join("\n");

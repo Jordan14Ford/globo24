@@ -50,6 +50,12 @@ import {
 } from "../lib/run/runHistory";
 import { getOrCreateRunId } from "../lib/run/runId";
 import { pipelineEmit } from "../lib/run/structuredLog";
+import { buildDigestBottomPayload, digestBottomEnabled } from "../lib/supplements/buildDigestBottom";
+import {
+  filterSentFromSections,
+  loadRecentlySentUrls,
+  recordSentUrls,
+} from "../lib/content/sentArticles";
 import type { MasterCuratedOutput, RegionalPipelineOutput } from "../types/pipeline";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +146,18 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
   const apiKey = process.env.OPENAI_API_KEY;
   let master: MasterCuratedOutput = await runMasterAgent(topicResults, apiKey);
 
+  // Cross-edition dedup: remove articles already sent in a previous edition today
+  const recentlySent = loadRecentlySentUrls();
+  if (recentlySent.size > 0) {
+    const removed = filterSentFromSections(
+      master.sections as unknown as Record<string, { link: string }[]>,
+      recentlySent
+    );
+    if (removed > 0) {
+      console.log(`[pipeline] Cross-edition dedup: removed ${removed} already-sent articles`);
+    }
+  }
+
   if (slice) {
     const ids = topicConfigs.map((t) => t.id).join(", ");
     master = {
@@ -153,6 +171,15 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
     await resolveGoogleNewsUrls(allSelected);
   } else {
     console.warn("[pipeline] Agent disabled: topic.resolve_links — skipping URL resolution");
+  }
+
+  if (digestBottomEnabled()) {
+    try {
+      master = { ...master, digestBottom: await buildDigestBottomPayload() };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[pipeline] digest bottom sections failed (continuing without):", msg);
+    }
   }
 
   const html = buildBrutalistHtml(master);
@@ -267,6 +294,12 @@ async function main() {
         sliceTopics,
         agentIds: activeAgents,
       });
+      // Record selected article URLs so the next edition won't repeat them
+      const selectedUrls = Object.values((out.json as MasterCuratedOutput).sections)
+        .flat()
+        .map((a) => a.link)
+        .filter(Boolean);
+      recordSentUrls(selectedUrls);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

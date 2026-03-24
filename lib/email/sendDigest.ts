@@ -32,7 +32,20 @@ export async function sendDigest(root: string = ROOT): Promise<SendDigestResult>
   const html = readFileSync(htmlPath, "utf-8");
   const text = existsSync(textPath) ? readFileSync(textPath, "utf-8") : "";
 
-  const subject = process.env.EMAIL_SUBJECT ?? "Globo News 24";
+  const baseSubject = process.env.EMAIL_SUBJECT ?? "Globo News 24";
+  const slot = (process.env.PIPELINE_SLOT ?? "").trim().toLowerCase();
+  const editionLabel =
+    slot === "morning" ? "Morning Edition" : slot === "evening" ? "Evening Edition" : "";
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date());
+  const subject =
+    editionLabel
+      ? `${baseSubject} — ${editionLabel} | ${dateLabel}`
+      : baseSubject;
   const modeRaw = (process.env.SEND_MODE ?? "live").trim().toLowerCase();
   const mode: SendMode =
     modeRaw === "test" || modeRaw === "dry-run" || modeRaw === "live" ? modeRaw : "live";

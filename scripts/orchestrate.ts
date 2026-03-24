@@ -97,9 +97,11 @@ async function main(): Promise<void> {
     execSync("npm run pipeline", {
       cwd: ROOT,
       stdio: "inherit",
-      env: { ...process.env, PIPELINE_RUN_ID: runId },
+      env: { ...process.env, PIPELINE_RUN_ID: runId, PIPELINE_SLOT: decision.slot },
     });
 
+    // Make slot available to sendDigest for subject line
+    process.env.PIPELINE_SLOT = decision.slot;
     const sendResult = await sendDigest(ROOT);
 
     if (sendResult.delivered) {

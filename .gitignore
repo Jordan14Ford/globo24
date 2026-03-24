@@ -8,6 +8,7 @@ data/agent-registry.json
 data/admin-settings.json
 data/stories.json
 data/digests.json
+data/sent-articles.json
 # Local-only copy of full README + notes (not published to GitHub)
 private/
 

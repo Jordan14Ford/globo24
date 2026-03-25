@@ -18,7 +18,7 @@ export type { DecideOptions, OrchestrateMode, ScheduleDecision } from "../../typ
 export { isProceedDecision } from "../../types/schedule";
 
 /**
- * - `auto`: proceed only inside 09:00–09:18 or 17:30–17:48 America/New_York (default window length).
+ * - `auto`: proceed only inside 09:00–11:59 or 17:30–19:59 America/New_York (wide for CI schedule jitter).
  * - `force`: proceed without time gate; slotKey = `YYYY-MM-DD-manual` (Eastern date) for dedupe.
  * - `dry-run`: always skip with explanation (no pipeline/send).
  */

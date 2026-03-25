@@ -1,5 +1,5 @@
 # Runs at times that map to ~09:00 and ~17:30 America/New_York (handles EST/EDT).
-# Final gate: `npm run orchestrate` uses Luxon + `lib/schedule/eastern.ts` (09:00–09:18 / 17:30–17:48 America/New_York).
+# Gate: `lib/schedule/eastern.ts` — morning 09:00–11:59 ET, evening 17:30–19:59 ET (wide so CI jitter still qualifies).
 # workflow_dispatch: optional force bypasses ET windows (still dedupes per day on manual slot).
 name: Global News Pipeline Digest
 
@@ -15,6 +15,8 @@ on:
   schedule:
     # ~09:00 Eastern: 13:00 UTC (EDT) / 14:00 UTC (EST)
     - cron: "0 13,14 * * *"
+    # Mid-morning retry (e.g. 09:30 EDT) — still inside 09:00–11:59 ET gate if the :00 runs queue late
+    - cron: "30 13 * * *"
     # ~17:30 Eastern: 21:30 UTC (EDT) / 22:30 UTC (EST)
     - cron: "30 21,22 * * *"
   workflow_dispatch:

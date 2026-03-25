@@ -3,7 +3,8 @@
  * Phase 1 orchestrator: Eastern send windows + send-history dedupe + existing pipeline/send.
  *
  * ORCHESTRATE_MODE:
- * - `auto` (default): only run inside 9:00–9:18 / 17:30–17:48 America/New_York
+ * - `auto` (default): only run inside wide Eastern windows (morning 09:00–11:59, evening 17:30–19:59)
+ *   so GitHub schedule delays still count as that day’s edition; dedupe enforces one send per slot
  * - `force`: skip time window; still dedupes on `YYYY-MM-DD-manual` unless SKIP_DEDUPE=1
  * - `dry-run`: log decision only, exit 0
  *

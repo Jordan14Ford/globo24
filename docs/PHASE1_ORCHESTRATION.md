@@ -2,7 +2,7 @@
 
 The **orchestrator** (`npm run orchestrate` / `npm run run:scheduled`) wraps the existing **`npm run pipeline`** + **`sendDigest`** flow:
 
-1. **America/New_York** send windows (default): **09:00–09:18** and **17:30–17:48** local Eastern (Luxon; EST/EDT automatic). Extra slack helps CI runners queue without missing the slot.
+1. **America/New_York** send windows (default): **09:00–11:59** and **17:30–19:59** local Eastern (Luxon; EST/EDT automatic). Windows are deliberately wide so **GitHub Actions schedule delays** still count as that day’s morning or evening edition; **dedupe** still allows only one successful send per `slotKey` per day.
 2. **Duplicate prevention**: after a successful send, a record is appended to **`data/send-history.json`** (or **`SEND_HISTORY_PATH`**) keyed by **`slotKey`** (e.g. `2025-03-19-morning`, `2025-03-19-evening`, or `2025-03-19-manual` when forced).
 3. **Clear logs**: `[orchestrate] SKIP — …` or `[orchestrate] PROCEED — …` then pipeline output.
 
@@ -45,7 +45,7 @@ Expect: `[orchestrate] decision` with `action`, `reason`, `slotKey`; **exit code
 
 ### 3. Auto mode outside windows (skip)
 
-Pick a time **not** in 09:00–09:18 or 17:30–17:48 Eastern, or temporarily patch `types/schedule.ts` `DEFAULT_WINDOW_MINUTES` / `eastern.ts` in a throwaway branch for testing.
+Pick a time **not** in 09:00–11:59 or 17:30–19:59 Eastern, or temporarily patch `eastern.ts` in a throwaway branch for testing.
 
 ```bash
 ORCHESTRATE_MODE=auto npx tsx scripts/orchestrate.ts

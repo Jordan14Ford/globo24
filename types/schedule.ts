@@ -10,7 +10,10 @@
 /** IANA timezone for all schedule gates (EST/EDT via runtime, e.g. Luxon). */
 export const EASTERN_TZ = "America/New_York" as const;
 
-/** Default minute slack after each start time (morning :00, evening :30). 18m helps GitHub Actions queue delays still land in-window. */
+/**
+ * Legacy default for `checkSendWindow(..., windowMinutes)` — **ignored**; windows are fixed ranges in `eastern.ts`
+ * so daily CI can land hours late and still send once per morning / once per evening.
+ */
 export const DEFAULT_WINDOW_MINUTES = 18;
 
 /** Calendar bucket for a scheduled send (not used for `manual` forced runs in logs). */

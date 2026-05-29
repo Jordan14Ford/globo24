@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Globo News 24 — Email preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --shell-bg: #0b0f14;
+        --panel: #111926;
+        --panel-2: #162233;
+        --line: #27384d;
+        --text: #edf3fb;
+        --muted: #9ab0c6;
+        --accent: #7dc4ff;
+        --frame-width: 760px;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top, rgba(125, 196, 255, 0.08), transparent 36%),
+          linear-gradient(180deg, #0b0f14 0%, #0d121a 100%);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .shell {
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin: 0 auto 20px;
+        max-width: 1240px;
+        padding: 16px 18px;
+        background: rgba(17, 25, 38, 0.92);
+        border: 1px solid rgba(39, 56, 77, 0.96);
+        border-radius: 18px;
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+      }
+
+      .title {
+        min-width: 260px;
+      }
+
+      .title h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        letter-spacing: 0.02em;
+      }
+
+      .title p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .controls button,
+      .controls a {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 10px 14px;
+        font-size: 13px;
+        text-decoration: none;
+        cursor: pointer;
+        transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+      }
+
+      .controls button:hover,
+      .controls a:hover {
+        border-color: var(--accent);
+        transform: translateY(-1px);
+      }
+
+      .controls button.active {
+        background: #1f3046;
+        border-color: var(--accent);
+      }
+
+      .stage {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 28px;
+        border-radius: 24px;
+        border: 1px solid rgba(39, 56, 77, 0.96);
+        background:
+          linear-gradient(180deg, rgba(20, 28, 40, 0.98), rgba(12, 18, 26, 0.98)),
+          linear-gradient(0deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02));
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.38);
+      }
+
+      .viewport {
+        width: min(100%, var(--frame-width));
+        margin: 0 auto;
+        transition: width 180ms ease;
+      }
+
+      iframe {
+        display: block;
+        width: 100%;
+        min-height: calc(100vh - 210px);
+        border: 1px solid rgba(216, 209, 199, 0.18);
+        border-radius: 20px;
+        background: #f3efe7;
+        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+      }
+
+      .meta {
+        margin: 14px auto 0;
+        max-width: 1240px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+
+      @media (max-width: 720px) {
+        .shell { padding: 14px; }
+        .toolbar, .stage { padding: 16px; }
+        iframe { min-height: calc(100vh - 220px); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="toolbar">
+        <div class="title">
+          <h1>Globo News 24 — Digest preview</h1>
+          <p>Browser frame for <code>output/digest.html</code>. Edition labels (<strong>Morning Edition</strong> / <strong>Afternoon Edition</strong>) appear when the digest was built with <code>PIPELINE_SLOT</code> set (e.g. <code>npm run orchestrate</code>).</p>
+          <p id="edition-from-digest" style="margin:8px 0 0;font-size:13px;color:var(--muted);"></p>
+        </div>
+        <div class="controls">
+          <button class="active" data-width="760">Desktop</button>
+          <button data-width="430">Mobile</button>
+          <button data-width="100%">Full Width</button>
+          <a href="/preview/email/raw" target="_blank" rel="noopener noreferrer">Open Raw HTML</a>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="viewport" id="viewport">
+          <iframe title="Email preview" src="/preview/email/raw"></iframe>
+        </div>
+      </div>
+
+      <p class="meta">This preview reflects the current generated digest and strips the temporary Figma capture script if it is still present.</p>
+    </div>
+
+    <script>
+      const viewport = document.getElementById("viewport");
+      const buttons = [...document.querySelectorAll("button[data-width]")];
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          buttons.forEach((candidate) => candidate.classList.remove("active"));
+          button.classList.add("active");
+          viewport.style.setProperty("--frame-width", button.dataset.width);
+        });
+      });
+
+      (async () => {
+        const p = document.getElementById("edition-from-digest");
+        if (!p) return;
+        try {
+          const r = await fetch("/preview/email/raw");
+          const t = await r.text();
+          if (t.includes("Morning Edition")) p.textContent = "Detected in this digest: Morning Edition.";
+          else if (t.includes("Afternoon Edition")) p.textContent = "Detected in this digest: Afternoon Edition.";
+          else p.textContent = "No edition label in this file — regenerate with PIPELINE_SLOT=morning or evening (or run orchestrate).";
+        } catch {
+          p.textContent = "Could not read digest preview.";
+        }
+      })();
+    </script>
+  </body>
+</html>

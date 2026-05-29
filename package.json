@@ -12,6 +12,7 @@
     "send:test": "SEND_MODE=test tsx scripts/sendEmail.ts",
     "pipeline:test": "tsx scripts/runPipeline.ts && SEND_MODE=test tsx scripts/sendEmail.ts",
     "admin": "tsx scripts/adminServer.ts",
+    "qa:newsletter": "tsx scripts/qaNewsletter.ts",
     "orchestrate": "tsx scripts/orchestrate.ts",
     "run:all": "tsx scripts/runPipeline.ts && tsx scripts/sendEmail.ts",
     "run:scheduled": "tsx scripts/orchestrate.ts",

@@ -7,8 +7,6 @@
  * 3. **Compile** — `buildBrutalistHtml` / `buildBrutalistPlain` → `output/digest.*`
  * 4. **Send** is separate: `npm run send` / `sendEmail.ts` reads those files and mails to `EMAIL_TO`.
  *
- * `PIPELINE_MODE=regions`: per-continent RSS + ranker → **same editorial HTML** as topics (`buildRegionalEditorialHtml`).
- *
  * **Phase 3 slice:** `PIPELINE_SLICE=1` limits search + curation to `PIPELINE_SLICE_TOPICS` (default `tech`).
  * **Phase 4:** run history (`data/run-history.json`), optional artifacts (`RUN_ARTIFACTS=1`), `PIPELINE_LOG_FORMAT=json`.
  * **Phase 5:** centralized agent registry + enable-state controls (`AGENT_ENABLE`, `AGENT_DISABLE`).
@@ -21,18 +19,10 @@ import "./loadEnv";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runRegionalAgent } from "../agents/regionalAgent";
-import { rankRegionalArticles } from "../agents/ranker";
-import { buildPlainTextSummary } from "../agents/editor";
 import { runTopicAgent } from "../agents/topicAgent";
-import { runMasterAgent } from "../agents/masterAgent";
+import { ensureMinimumStoriesPerTopic, runMasterAgent } from "../agents/masterAgent";
 import { resolveGoogleNewsUrls } from "../agents/rssUtil";
-import {
-  buildBrutalistHtml,
-  buildBrutalistPlain,
-  buildRegionalEditorialHtml,
-} from "../agents/brutalistEditor";
-import { REGIONS } from "../config/sources";
+import { buildBrutalistHtml, buildBrutalistPlain } from "../agents/brutalistEditor";
 import { getTopicConfigsForPipelineRun, getSliceTopicIds, isPipelineSliceMode } from "../lib/pipeline/sliceConfig";
 import { persistStoriesAndDigest } from "../lib/content/contentStore";
 import {
@@ -54,57 +44,12 @@ import { buildDigestBottomPayload, digestBottomEnabled } from "../lib/supplement
 import {
   filterSentFromSections,
   loadRecentlySentUrls,
-  recordSentUrls,
 } from "../lib/content/sentArticles";
-import type { MasterCuratedOutput, RegionalPipelineOutput } from "../types/pipeline";
+import type { MasterCuratedOutput } from "../types/pipeline";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "output");
-
-async function runRegionsPipeline(registry: ResolvedAgentRegistry): Promise<{
-  json: RegionalPipelineOutput;
-  html: string;
-  text: string;
-}> {
-  assertAgentEnabled(registry, "regions.search", "Enable via AGENT_ENABLE=regions.search");
-  assertAgentEnabled(registry, "regions.rank", "Enable via AGENT_ENABLE=regions.rank");
-  assertAgentEnabled(registry, "regions.compile", "Enable via AGENT_ENABLE=regions.compile");
-  console.log("[pipeline] MODE=regions — continental RSS + ranker");
-
-  const regionalResults = await Promise.all(
-    REGIONS.map(async (config) => {
-      try {
-        return await runRegionalAgent(config);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[pipeline] Regional agent crashed: ${config.id}`, msg);
-        return {
-          regionId: config.id,
-          regionName: config.name,
-          articles: [],
-          errors: [`fatal: ${msg}`],
-          fetchedAt: new Date().toISOString(),
-        };
-      }
-    })
-  );
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  const rankedResults = await Promise.all(
-    regionalResults.map((r) => rankRegionalArticles(r, apiKey))
-  );
-
-  const output: RegionalPipelineOutput = {
-    generatedAt: new Date().toISOString(),
-    regions: rankedResults,
-  };
-
-  const html = buildRegionalEditorialHtml(output);
-  const text = buildPlainTextSummary(output);
-
-  return { json: output, html, text };
-}
 
 async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
   json: MasterCuratedOutput;
@@ -158,6 +103,8 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
     }
   }
 
+  master = ensureMinimumStoriesPerTopic(master, topicResults);
+
   if (slice) {
     const ids = topicConfigs.map((t) => t.id).join(", ");
     master = {
@@ -175,7 +122,7 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
 
   if (digestBottomEnabled()) {
     try {
-      master = { ...master, digestBottom: await buildDigestBottomPayload() };
+      master = { ...master, digestBottom: await buildDigestBottomPayload(registry) };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[pipeline] digest bottom sections failed (continuing without):", msg);
@@ -191,14 +138,14 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
 interface WriteMeta {
   runId: string;
   startedAt: string;
-  pipelineMode: "topics" | "regions";
+  pipelineMode: "topics";
   slice: boolean;
   sliceTopics?: string[];
   agentIds: ReturnType<typeof enabledAgentIds>;
 }
 
 function writeOutputs(
-  jsonPayload: RegionalPipelineOutput | MasterCuratedOutput,
+  jsonPayload: MasterCuratedOutput,
   html: string,
   text: string,
   meta: WriteMeta
@@ -257,7 +204,13 @@ async function main() {
   const runId = getOrCreateRunId();
   const startedAt = new Date().toISOString();
   const mode = (process.env.PIPELINE_MODE ?? "topics").toLowerCase();
-  const runtimeMode = mode === "regions" ? "regions" : "topics";
+  if (mode === "regions") {
+    console.error(
+      "[pipeline] PIPELINE_MODE=regions is retired. Globo News 24 runs topics-only (four pillars + master curator). Unset PIPELINE_MODE or set PIPELINE_MODE=topics."
+    );
+    process.exit(1);
+  }
+  const runtimeMode = "topics" as const;
   ensureAgentRegistryFileExists();
   const registry = resolveAgentRegistry(runtimeMode);
   const activeAgents = enabledAgentIds(registry);
@@ -268,39 +221,17 @@ async function main() {
   });
 
   try {
-    if (mode === "regions") {
-      if (isPipelineSliceMode()) {
-        console.warn(
-          "[pipeline] PIPELINE_SLICE is set but PIPELINE_MODE=regions — slice applies to topics mode only; ignoring."
-        );
-      }
-      const out = await runRegionsPipeline(registry);
-      writeOutputs(out.json, out.html, out.text, {
-        runId,
-        startedAt,
-        pipelineMode: "regions",
-        slice: false,
-        agentIds: activeAgents,
-      });
-    } else {
-      const slice = isPipelineSliceMode();
-      const sliceTopics = slice ? getSliceTopicIds() : undefined;
-      const out = await runTopicsPipeline(registry);
-      writeOutputs(out.json, out.html, out.text, {
-        runId,
-        startedAt,
-        pipelineMode: "topics",
-        slice,
-        sliceTopics,
-        agentIds: activeAgents,
-      });
-      // Record selected article URLs so the next edition won't repeat them
-      const selectedUrls = Object.values((out.json as MasterCuratedOutput).sections)
-        .flat()
-        .map((a) => a.link)
-        .filter(Boolean);
-      recordSentUrls(selectedUrls);
-    }
+    const slice = isPipelineSliceMode();
+    const sliceTopics = slice ? getSliceTopicIds() : undefined;
+    const out = await runTopicsPipeline(registry);
+    writeOutputs(out.json, out.html, out.text, {
+      runId,
+      startedAt,
+      pipelineMode: "topics",
+      slice,
+      sliceTopics,
+      agentIds: activeAgents,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (isRunHistoryEnabled()) {
@@ -311,10 +242,9 @@ async function main() {
         startedAt,
         finishedAt: new Date().toISOString(),
         status: "failure",
-        pipelineMode: mode === "regions" ? "regions" : "topics",
-        slice: mode !== "regions" && isPipelineSliceMode(),
-        sliceTopics:
-          mode !== "regions" && isPipelineSliceMode() ? getSliceTopicIds() : undefined,
+        pipelineMode: "topics",
+        slice: isPipelineSliceMode(),
+        sliceTopics: isPipelineSliceMode() ? getSliceTopicIds() : undefined,
         agentIds: activeAgents,
         error: msg,
       });

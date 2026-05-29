@@ -37,7 +37,10 @@ export function loadAdminSettings(filePath: string = getAdminSettingsPath()): Ad
     const raw = readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(raw) as AdminSettingsFile;
     if (parsed?.version !== 1 || !parsed.settings) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...parsed.settings };
+    const merged = { ...DEFAULT_SETTINGS, ...parsed.settings };
+    const rawMode = (parsed.settings as { pipelineModeDefault?: string }).pipelineModeDefault;
+    if (rawMode === "regions") merged.pipelineModeDefault = "topics";
+    return merged;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -49,6 +52,9 @@ export function saveAdminSettings(
 ): AdminSettings {
   const current = loadAdminSettings(filePath);
   const next: AdminSettings = { ...current, ...settings };
+  if ((settings as { pipelineModeDefault?: string }).pipelineModeDefault === "regions") {
+    next.pipelineModeDefault = "topics";
+  }
   atomicWrite(filePath, { version: 1, settings: next });
   return next;
 }

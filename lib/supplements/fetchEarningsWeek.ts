@@ -38,6 +38,7 @@ interface NasdaqRow {
   marketCap?: string;
   fiscalQuarterEnding?: string;
   epsForecast?: string;
+  sector?: string;
 }
 
 function parseMarketCapB(raw?: string): number {
@@ -73,6 +74,7 @@ async function fetchNasdaqDay(date: string): Promise<EarningsRow[]> {
         companyName: row.name?.trim() || sym,
         date,
         timeLabel: formatTime(row.time),
+        industry: row.sector?.trim() || undefined,
       });
     }
     // Sort biggest market caps first
@@ -98,8 +100,11 @@ export async function fetchEarningsDigestSection(): Promise<EarningsDigestSectio
 
   try {
     const perDay = await Promise.all(days.map(fetchNasdaqDay));
-    // Keep only top 25 by market cap across the whole week
-    const rows = perDay.flat().slice(0, 25);
+    const cap = (() => {
+      const n = Number(process.env.EARNINGS_WEEK_FETCH_MAX ?? "20");
+      return Number.isFinite(n) && n >= 5 && n <= 40 ? Math.floor(n) : 20;
+    })();
+    const rows = perDay.flat().slice(0, cap);
     if (rows.length === 0) {
       return { ...base, fetchError: "No earnings data returned from Nasdaq for this week." };
     }

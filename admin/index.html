@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Global News Admin</title>
+    <title>Globo News 24 — Admin</title>
     <style>
       :root { color-scheme: dark; }
       body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b0f14; color:#e8eef7; margin:0; }
@@ -26,13 +26,14 @@
     </style>
   </head>
   <body>
-    <header><h1>Global News Pipeline — Admin Foundation (Phase 6)</h1></header>
+    <header><h1>Globo News 24 — Admin</h1></header>
     <nav class="tabs">
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="agents">Agents</button>
       <button class="tab" data-tab="runs">Runs</button>
       <button class="tab" data-tab="stories">Stories</button>
       <button class="tab" data-tab="digests">Digests</button>
+      <button class="tab" data-tab="earnings">Earnings</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
     <main>
@@ -57,10 +58,17 @@
         <p class="muted">Recent digest snapshots captured from pipeline outputs.</p>
         <table id="digests-table"></table>
       </section>
+      <section id="earnings">
+        <p class="muted">Large-cap earnings this week (same source as the digest bottom block). Reload to refresh.</p>
+        <p id="earnings-week" class="muted" style="margin:8px 0 12px;"></p>
+        <p id="earnings-error" style="color:#f88;margin:0 0 8px;"></p>
+        <table id="earnings-table"></table>
+        <p id="earnings-links" class="muted" style="margin-top:12px;"></p>
+      </section>
       <section id="settings">
         <div class="row">
           <label>Default Pipeline Mode
-            <select id="s-pipeline-mode"><option>topics</option><option>regions</option></select>
+            <select id="s-pipeline-mode"><option>topics</option></select>
           </label>
           <label>Default Orchestrate Mode
             <select id="s-orchestrate-mode"><option>auto</option><option>force</option><option>dry-run</option></select>
@@ -158,6 +166,35 @@
           data.rows.map((r) => ({ ...r, sliceTopics: (r.sliceTopics || []).join(", ") })));
       }
 
+      async function loadEarnings() {
+        const errEl = document.getElementById("earnings-error");
+        const weekEl = document.getElementById("earnings-week");
+        const linksEl = document.getElementById("earnings-links");
+        errEl.textContent = "";
+        weekEl.textContent = "";
+        linksEl.innerHTML = "";
+        try {
+          const data = await api("/api/earnings");
+          weekEl.textContent = data.weekLabel || "";
+          if (data.fetchError) errEl.textContent = data.fetchError;
+          const rows = (data.rows || []).map((r) => ({
+            symbol: r.symbol,
+            companyName: r.companyName,
+            date: r.date,
+            timeLabel: r.timeLabel || "—",
+            industry: r.industry || "—",
+          }));
+          table(document.getElementById("earnings-table"),
+            ["symbol", "companyName", "date", "timeLabel", "industry"],
+            rows);
+          const cal = data.calendarUrl ? `<a href="${data.calendarUrl}" target="_blank" rel="noopener noreferrer">Full earnings calendar</a>` : "";
+          const yt = data.youtubeUrl ? ` · <a href="${data.youtubeUrl}" target="_blank" rel="noopener noreferrer">YouTube</a>` : "";
+          linksEl.innerHTML = cal + yt;
+        } catch (e) {
+          errEl.textContent = e && e.message ? String(e.message) : "Failed to load earnings.";
+        }
+      }
+
       async function loadSettings() {
         const s = await api("/api/settings");
         document.getElementById("s-pipeline-mode").value = s.pipelineModeDefault;
@@ -179,7 +216,7 @@
         document.getElementById("settings-status").textContent = "saved";
       };
 
-      loadOverview(); loadAgents(); loadRuns(); loadStories(); loadDigests(); loadSettings();
+      loadOverview(); loadAgents(); loadRuns(); loadStories(); loadDigests(); loadEarnings(); loadSettings();
     </script>
   </body>
 </html>

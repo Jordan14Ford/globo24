@@ -48,12 +48,12 @@ The **Regional News Digest** workflow in the `news-agent` repo had its **`schedu
 
 ## Schedule (Phase 1 orchestrator)
 
-The workflow uses **two cron lines** (UTC) so runs land near **09:00** and **17:30 America/New_York** year-round (EST vs EDT):
+The workflow uses UTC cron lines so runs land inside **09:00-10:00** and **16:00-18:00 America/New_York** year-round (EST vs EDT):
 
-- `0 13,14 * * *` — one of these hits the **morning** window.
-- `30 21,22 * * *` — one of these hits the **evening** window (~**5:30 PM** Eastern).
+- `0,30 13,14 * * *` — one of these hits the **morning** window.
+- `0,30 20,21,22 * * *` — one or more of these hit the **evening** window.
 
-The orchestrator (`npm run orchestrate`) **re-checks** Luxon windows (**09:00–09:18** and **17:30–17:48** `America/New_York`). Runs that fall outside those windows exit **0** with a skip log (e.g. the “wrong” UTC hour for that season).
+The orchestrator (`npm run orchestrate`) **re-checks** Luxon windows (**09:00-10:00** and **16:00-18:00** `America/New_York`). Runs that fall outside those windows exit **0** with a skip log (e.g. the “wrong” UTC hour for that season).
 
 - **Scheduled** (`on.schedule`): `ORCHESTRATE_MODE=auto` (time gate + dedupe).
 - **Manual** (`workflow_dispatch`): **force_run** (default on) → `ORCHESTRATE_MODE=force`; turn off for `auto` (same as cron). Still dedupes per Eastern calendar day on `*-manual` when forced unless `SKIP_DEDUPE=1`.

@@ -14,7 +14,7 @@
  * @see docs/ARCHITECTURE.md
  */
 import OpenAI from "openai";
-import { TOP_STORIES_PER_TOPIC } from "../config/topicFeeds";
+import { MIN_STORIES_PER_TOPIC, TOP_STORIES_PER_TOPIC } from "../config/topicFeeds";
 import type {
   CuratedBy,
   MasterCuratedOutput,
@@ -23,8 +23,14 @@ import type {
   TopicId,
 } from "../types/pipeline";
 
+const ALL_TOPIC_IDS: TopicId[] = ["tech", "geopolitics", "macro", "economics"];
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normUrl(u: string): string {
+  return u.toLowerCase().replace(/\/$/, "").split("?")[0];
 }
 
 const TOPIC_KEYWORDS: Record<TopicId, string[]> = {
@@ -202,6 +208,7 @@ Tasks:
 1) Within each topic, pick the BEST candidates for a senior macro reader (rates, FX, commodities, geopolitics, AI/industrial policy, trade).
 2) Remove near-duplicates (same story reworded) within a topic.
 3) Return at most N indices per topic (given in user JSON as maxPerTopic), referring to each topic's article array indices (0-based).
+4) When there are enough distinct articles, include at least minPerTopic indices per topic (given in user JSON). If a topic has fewer candidates than minPerTopic, return as many distinct indices as exist.
 Output JSON only: { "selections": { "tech": number[], "geopolitics": number[], "macro": number[], "economics": number[] }, "notes": string }`;
 
 /**
@@ -254,6 +261,7 @@ export async function runMasterAgent(
           role: "user",
           content: JSON.stringify({
             maxPerTopic: TOP_STORIES_PER_TOPIC,
+            minPerTopic: MIN_STORIES_PER_TOPIC,
             topics: payload,
             sliceMode,
             sliceHint,
@@ -275,8 +283,7 @@ export async function runMasterAgent(
       economics: [],
     };
 
-    const ids: TopicId[] = ["tech", "geopolitics", "macro", "economics"];
-    for (const tid of ids) {
+    for (const tid of ALL_TOPIC_IDS) {
       const tr = topicResults.find((t) => t.topicId === tid);
       if (!tr) continue;
       const idxs = parsed.selections?.[tid] ?? [];
@@ -292,7 +299,7 @@ export async function runMasterAgent(
       sections[tid] = picked;
     }
 
-    const empty = ids.every((id) => sections[id].length === 0);
+    const empty = ALL_TOPIC_IDS.every((id) => sections[id].length === 0);
     if (empty) {
       console.log("[master] OpenAI returned empty selections — keyword fallback");
       return { ...fallbackCurate(topicResults), error: "empty OpenAI selections" };
@@ -310,4 +317,74 @@ export async function runMasterAgent(
     console.log("[master] OpenAI error — keyword fallback", msg);
     return { ...fallbackCurate(topicResults), error: msg };
   }
+}
+
+/**
+ * Ensures each topic present in `topicResults` has at least `MIN_STORIES_PER_TOPIC` articles
+ * when enough unique URLs exist among candidates (respects `TOP_STORIES_PER_TOPIC` cap).
+ * Used after cross-edition dedup in the pipeline.
+ */
+export function ensureMinimumStoriesPerTopic(
+  master: MasterCuratedOutput,
+  topicResults: TopicAgentResult[]
+): MasterCuratedOutput {
+  const min = MIN_STORIES_PER_TOPIC;
+  const max = TOP_STORIES_PER_TOPIC;
+  if (min <= 0 || topicResults.length === 0) return master;
+
+  const sections: Record<TopicId, NormalizedArticle[]> = {
+    tech: [...(master.sections.tech ?? [])],
+    geopolitics: [...(master.sections.geopolitics ?? [])],
+    macro: [...(master.sections.macro ?? [])],
+    economics: [...(master.sections.economics ?? [])],
+  };
+
+  const globalSeen = new Set<string>();
+  for (const tid of ALL_TOPIC_IDS) {
+    for (const a of sections[tid]) {
+      globalSeen.add(normUrl(a.link));
+    }
+  }
+
+  let added = 0;
+  for (const tr of topicResults) {
+    const tid = tr.topicId;
+    const picked = sections[tid];
+    if (picked.length >= min) continue;
+
+    const scored = tr.articles.map((a) => {
+      const blob = `${a.title} ${a.summary}`;
+      return {
+        a,
+        score:
+          keywordScoreForTopic(tr.topicId, blob) -
+          negativePenalty(blob) +
+          recencyBoost(a.publishedAt) +
+          (a.title.length > 40 ? 0.1 : 0),
+      };
+    });
+    scored.sort((x, y) => y.score - x.score);
+
+    const inTopic = new Set(picked.map((a) => normUrl(a.link)));
+    for (const { a } of scored) {
+      if (picked.length >= min) break;
+      if (picked.length >= max) break;
+      const u = normUrl(a.link);
+      if (inTopic.has(u)) continue;
+      if (globalSeen.has(u)) continue;
+      picked.push(a);
+      inTopic.add(u);
+      globalSeen.add(u);
+      added++;
+    }
+    sections[tid] = picked;
+  }
+
+  if (added === 0) return master;
+
+  return {
+    ...master,
+    sections,
+    masterNotes: `${master.masterNotes ?? ""} · Filled to ≥${min}/topic where possible.`.trim(),
+  };
 }

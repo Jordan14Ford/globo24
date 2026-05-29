@@ -1,8 +1,8 @@
 /**
  * Cross-edition article deduplication.
  *
- * Records URLs that were selected in a pipeline run so that the next run
- * (e.g. the evening edition) skips them.  Entries expire after TTL_HOURS
+ * Records URLs that were successfully sent so that the next run
+ * (e.g. the evening edition) skips them. Entries expire after TTL_HOURS
  * so articles recirculate after ~24 h.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";

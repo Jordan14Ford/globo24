@@ -3,8 +3,8 @@
  * Phase 1 orchestrator: Eastern send windows + send-history dedupe + existing pipeline/send.
  *
  * ORCHESTRATE_MODE:
- * - `auto` (default): only run inside wide Eastern windows (morning 09:00–11:59, evening 17:30–19:59)
- *   so GitHub schedule delays still count as that day’s edition; dedupe enforces one send per slot
+ * - `auto` (default): only run inside Eastern windows (morning 09:00-10:00, evening 16:00-18:00);
+ *   dedupe enforces one send per slot
  * - `force`: skip time window; still dedupes on `YYYY-MM-DD-manual` unless SKIP_DEDUPE=1
  * - `dry-run`: log decision only, exit 0
  *
@@ -15,12 +15,15 @@
  */
 import "./loadEnv";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sendDigest } from "../lib/email/sendDigest";
+import { recordSentUrls } from "../lib/content/sentArticles";
 import { decideSchedule } from "../lib/schedule/scheduleDecision";
 import type { OrchestrateMode } from "../types/schedule";
 import { isProceedDecision } from "../types/schedule";
+import type { MasterCuratedOutput } from "../types/pipeline";
 import {
   appendSendRecord,
   ensureHistoryFileExists,
@@ -57,6 +60,21 @@ function parseMode(): OrchestrateMode {
   if (m === "force" || m === "dry-run" || m === "auto") return m;
   log(`WARN: unknown ORCHESTRATE_MODE=${m}, using auto`);
   return "auto";
+}
+
+function selectedUrlsFromPipelineOutput(): string[] {
+  const outputPath = path.join(ROOT, "output", "pipeline-output.json");
+  try {
+    const payload = JSON.parse(readFileSync(outputPath, "utf-8")) as MasterCuratedOutput;
+    return Object.values(payload.sections)
+      .flat()
+      .map((a) => a.link)
+      .filter(Boolean);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log(`WARN: could not record sent article URLs from ${outputPath}: ${msg}`);
+    return [];
+  }
 }
 
 async function main(): Promise<void> {
@@ -101,6 +119,12 @@ async function main(): Promise<void> {
       env: { ...process.env, PIPELINE_RUN_ID: runId, PIPELINE_SLOT: decision.slot },
     });
 
+    // Another orchestrate run may have finished while the pipeline ran — avoid a second send.
+    if (!skipDedupe && hasSentForSlot(decision.slotKey, historyPath)) {
+      log(`SKIP send — slot ${decision.slotKey} already recorded (duplicate run or overlapping trigger)`);
+      process.exit(0);
+    }
+
     // Make slot available to sendDigest for subject line
     process.env.PIPELINE_SLOT = decision.slot;
     const sendResult = await sendDigest(ROOT);
@@ -115,6 +139,7 @@ async function main(): Promise<void> {
         },
         historyPath
       );
+      recordSentUrls(selectedUrlsFromPipelineOutput());
     } else {
       log(`NO-SEND — mode=${sendResult.mode}; send history not updated`);
     }

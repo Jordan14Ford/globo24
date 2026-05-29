@@ -9,6 +9,7 @@ import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import type { DigestEmailProvider } from "../../types/schedule";
 import type { SendMode } from "../../types/send";
+import { compactEmailHtml } from "./compactHtml";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, "..", "..");
@@ -29,7 +30,18 @@ export async function sendDigest(root: string = ROOT): Promise<SendDigestResult>
     throw new Error(`Missing HTML digest at ${htmlPath}. Run: npm run pipeline`);
   }
 
-  const html = readFileSync(htmlPath, "utf-8");
+  let html = readFileSync(htmlPath, "utf-8");
+  const compactRaw = (process.env.COMPACT_DIGEST_HTML ?? "1").trim().toLowerCase();
+  const compact = compactRaw !== "0" && compactRaw !== "false" && compactRaw !== "no";
+  if (compact) {
+    html = compactEmailHtml(html);
+  }
+  const htmlBytes = Buffer.byteLength(html, "utf8");
+  if (htmlBytes > 95_000) {
+    console.warn(
+      `[sendEmail] HTML size ${htmlBytes} bytes — Gmail often clips near ~102KB; trim supplements or raise limits in .env (see DIGEST_HTML_*).`
+    );
+  }
   const text = existsSync(textPath) ? readFileSync(textPath, "utf-8") : "";
 
   const baseSubject = process.env.EMAIL_SUBJECT ?? "Globo News 24";

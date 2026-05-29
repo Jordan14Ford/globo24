@@ -67,7 +67,18 @@ export type CuratedBy = "openai" | "keyword_fallback";
 /** Reddit “hot” row for the bottom-of-email supplement block. */
 export interface RedditDigestPost {
   title: string;
+  /** Article or external URL for link posts; thread for text-only posts. */
   link: string;
+  /** Always the reddit.com thread (discussion). */
+  redditThreadUrl: string;
+  /** Upvotes when available (for relevance ranking). */
+  score?: number;
+  /** Comment count when available (helps prioritize market-moving discussions). */
+  commentCount?: number;
+  /** Unix seconds from Reddit, when available. */
+  createdUtc?: number;
+  /** Listing sources that surfaced the post, e.g. hot/top-day. */
+  listings?: string[];
 }
 
 export interface RedditDigestSubsection {
@@ -82,6 +93,8 @@ export interface EarningsRow {
   companyName: string;
   date: string;
   timeLabel?: string;
+  industry?: string;
+  summary?: string;
 }
 
 /** This week’s earnings + outbound links (calendar, optional YouTube). */
@@ -93,9 +106,41 @@ export interface EarningsDigestSection {
   fetchError?: string;
 }
 
+/** Hub links for live / replay earnings calls (IR pages, Nasdaq hub, etc.). */
+export interface EarningsCallHubRow {
+  symbol: string;
+  companyName: string;
+  date: string;
+  hubUrl: string;
+  hubLabel: string;
+}
+
+export interface EarningsCallsSection {
+  weekLabel: string;
+  rows: EarningsCallHubRow[];
+  fetchError?: string;
+}
+
+export interface SupplementReview {
+  /** Short editorial note (plain text; HTML-escaped when rendered). */
+  text: string;
+  curatedBy: "openai" | "keyword_fallback";
+}
+
+/** Which bottom blocks to render (driven by agent registry). */
+export interface DigestBottomFlags {
+  showReddit: boolean;
+  showEarningsWeekTable: boolean;
+  showEarningsCallHubs: boolean;
+  showBottomReview: boolean;
+}
+
 export interface DigestBottomPayload {
   reddit: RedditDigestSubsection[];
   earnings: EarningsDigestSection;
+  earningsCalls?: EarningsCallsSection;
+  supplementReview?: SupplementReview;
+  flags: DigestBottomFlags;
 }
 
 export interface MasterCuratedOutput {

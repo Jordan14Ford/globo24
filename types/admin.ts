@@ -3,7 +3,8 @@
  */
 
 export interface AdminSettings {
-  pipelineModeDefault: "topics" | "regions";
+  /** Topics-only; regional pipeline retired. */
+  pipelineModeDefault: "topics";
   orchestrateModeDefault: "auto" | "force" | "dry-run";
   logFormatDefault: "text" | "json";
   runHistoryEnabledDefault: boolean;

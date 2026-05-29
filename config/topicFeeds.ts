@@ -104,3 +104,9 @@ export const TOPIC_ALLOWED_HOSTS = new Set([
 
 export const MAX_CANDIDATES_PER_TOPIC = Number(process.env.MAX_CANDIDATES_PER_TOPIC ?? 80);
 export const TOP_STORIES_PER_TOPIC = Number(process.env.TOP_STORIES_PER_TOPIC ?? 10);
+/** Floor for each pillar in the final digest (capped by `TOP_STORIES_PER_TOPIC`). */
+const minRaw = Number(process.env.MIN_STORIES_PER_TOPIC ?? 3);
+export const MIN_STORIES_PER_TOPIC = Math.min(
+  Math.max(0, Number.isFinite(minRaw) ? Math.floor(minRaw) : 3),
+  Math.max(1, TOP_STORIES_PER_TOPIC)
+);

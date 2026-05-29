@@ -1,5 +1,5 @@
-# Runs at times that map to ~09:00 and ~17:30 America/New_York (handles EST/EDT).
-# Gate: `lib/schedule/eastern.ts` — morning 09:00–11:59 ET, evening 17:30–19:59 ET (wide so CI jitter still qualifies).
+# Runs at times that map to the configured America/New_York windows (handles EST/EDT).
+# Gate: `lib/schedule/eastern.ts` — morning 09:00-10:00 ET, evening 16:00-18:00 ET.
 # workflow_dispatch: optional force bypasses ET windows (still dedupes per day on manual slot).
 name: Global News Pipeline Digest
 
@@ -13,12 +13,10 @@ concurrency:
 
 on:
   schedule:
-    # ~09:00 Eastern: 13:00 UTC (EDT) / 14:00 UTC (EST)
-    - cron: "0 13,14 * * *"
-    # Mid-morning retry (e.g. 09:30 EDT) — still inside 09:00–11:59 ET gate if the :00 runs queue late
-    - cron: "30 13 * * *"
-    # ~17:30 Eastern: 21:30 UTC (EDT) / 22:30 UTC (EST)
-    - cron: "30 21,22 * * *"
+    # Morning window 09:00-10:00 ET: 13:00/13:30 UTC in EDT, 14:00/14:30 UTC in EST.
+    - cron: "0,30 13,14 * * *"
+    # Evening window 16:00-18:00 ET: 20:00-21:30 UTC in EDT, 21:00-22:30 UTC in EST.
+    - cron: "0,30 20,21,22 * * *"
   workflow_dispatch:
     inputs:
       force_run:
@@ -56,10 +54,14 @@ jobs:
 
       - name: Orchestrate (schedule gate + dedupe + pipeline + send)
         env:
-          PIPELINE_MODE: ${{ vars.PIPELINE_MODE || 'topics' }}
+          # Globo News 24 — topics pipeline only (regional mode retired)
+          PIPELINE_MODE: topics
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MASTER_MODEL: ${{ vars.OPENAI_MASTER_MODEL || 'gpt-4o-mini' }}
           OPENAI_RANK_MODEL: ${{ vars.OPENAI_RANK_MODEL || 'gpt-4o-mini' }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ vars.REDDIT_USER_AGENT || 'GloboNews24/1.0 by Jordan14Ford' }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}

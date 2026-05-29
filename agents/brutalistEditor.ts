@@ -50,15 +50,16 @@ const TOPIC_LABEL: Record<TopicId, string> = {
 export type EditorialStoryRow = { article: NormalizedArticle; sectionLabel: string };
 
 /** Stock photos when RSS has no image (Unsplash; hotlink allowed for dev/preview). */
+/** Shorter `w=` keeps img URLs smaller in HTML (helps stay under Gmail ~102KB clip). */
 const UNSPLASH_FALLBACKS = [
-  "https://images.unsplash.com/photo-1469474968028-56623f02e42e?q=80&w=2000",
-  "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1400",
-  "https://images.unsplash.com/photo-1446776877081-d282a0f896e2?q=80&w=1400",
-  "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?q=80&w=1400",
-  "https://images.unsplash.com/photo-1495020689067-958852a7765e?q=80&w=1400",
-  "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1400",
-  "https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?q=80&w=1400",
-  "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1400",
+  "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1446776877081-d282a0f896e2?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?auto=format&w=800&q=75",
+  "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&w=800&q=75",
 ];
 
 function resolveImage(a: NormalizedArticle, index: number): string {
@@ -67,18 +68,60 @@ function resolveImage(a: NormalizedArticle, index: number): string {
   return UNSPLASH_FALLBACKS[index % UNSPLASH_FALLBACKS.length];
 }
 
+/** Caps supplement table rows in HTML to reduce Gmail clipping (full data remains in pipeline JSON). */
+function digestHtmlEarningsRowsCap(): number {
+  const n = Number(process.env.DIGEST_HTML_EARNINGS_MAX ?? "10");
+  return Number.isFinite(n) && n >= 1 && n <= 50 ? Math.floor(n) : 10;
+}
+
+function digestHtmlCallsRowsCap(): number {
+  const n = Number(process.env.DIGEST_HTML_CALLS_MAX ?? "8");
+  return Number.isFinite(n) && n >= 1 && n <= 40 ? Math.floor(n) : 8;
+}
+
 function clipSummary(s: string, max: number): string {
   const t = s.replace(/\s+/g, " ").trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
 }
 
-function formatEditionDate(iso: string): string {
-  const d = new Date(iso);
-  const dateStr = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  const hour = d.getUTCHours();
-  const slot = hour < 12 ? "Morning" : "Evening";
-  return `${dateStr} · ${slot} Edition`;
+const ET_TZ = "America/New_York";
+
+/** Aligns with orchestrator `PIPELINE_SLOT` (morning | evening). */
+function formatDateEt(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: ET_TZ,
+  });
+}
+
+function getEditionDisplayLong(): "Morning Edition" | "Evening Edition" | null {
+  const slot = (process.env.PIPELINE_SLOT ?? "").trim().toLowerCase();
+  if (slot === "morning") return "Morning Edition";
+  if (slot === "evening") return "Evening Edition";
+  return null;
+}
+
+/** Top-right header cell: date (ET) + edition when `PIPELINE_SLOT` is set (e.g. by `npm run orchestrate`). */
+function formatEditionHeaderRight(iso: string): string {
+  const dateStr = formatDateEt(iso);
+  const long = getEditionDisplayLong();
+  return long ? `${dateStr} · ${long}` : dateStr;
+}
+
+function htmlDocumentTitle(): string {
+  const long = getEditionDisplayLong();
+  if (long === "Morning Edition") return "Globo News 24 — Morning Edition";
+  if (long === "Evening Edition") return "Globo News 24 — Evening Edition";
+  return "Globo News 24 — The Editorial Digest";
+}
+
+function editionHeroBadgeHtml(): string {
+  const long = getEditionDisplayLong();
+  if (!long) return "";
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#8b1e1e;margin:12px 0 0 0;">${esc(long)}</div>`;
 }
 
 function flattenTopicStories(out: MasterCuratedOutput): EditorialStoryRow[] {
@@ -276,58 +319,51 @@ export interface EditorialDigestParams {
 }
 
 function buildDigestBottomHtml(bottom: DigestBottomPayload): string {
+  const { flags } = bottom;
   const subStyle =
     "font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#8b1e1e;margin:0 0 8px 0;";
   const metaStyle = "font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:#5e5a55;margin:0 0 14px 0;";
   const linkStyle = "color:#171717;text-decoration:underline;";
-  const liStyle = "margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.35;color:#171717;";
+  const liStyle = "margin:0 0 12px 0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.35;color:#171717;";
+  const smallStyle =
+    "font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;color:#5e5a55;margin:6px 0 0 0;";
 
-  const redditBlocks = bottom.reddit.map((sec) => {
-    const browseUrl = `https://old.reddit.com/r/${sec.subreddit}/hot/`;
-    const browseRow = `<p style="${metaStyle}"><a href="${esc(browseUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Browse r/${esc(sec.subreddit)} (hot) on Reddit →</a></p>`;
-    const err = sec.error
-      ? `<p style="${metaStyle}">Could not load RSS (some networks block automated fetches): ${esc(sec.error)}</p>`
+  const reviewBlock =
+    bottom.supplementReview && flags.showBottomReview
+      ? `<div style="margin:0 0 22px 0;padding:14px 16px;background:#f0ebe3;border:1px solid #d8d1c7;border-radius:4px;">
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#5e5a55;margin:0 0 8px 0;">Editor’s note · supplements</div>
+    <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.45;color:#171717;">${esc(bottom.supplementReview.text)}</p>
+  </div>`
       : "";
-    const list =
-      sec.posts.length === 0 && !sec.error
-        ? `<p style="${metaStyle}">No posts in feed.</p>`
-        : sec.error
-          ? ""
-          : `<ul style="margin:0;padding:0 0 0 18px;list-style:disc;">${sec.posts
-              .map(
-                (p) =>
-                  `<li style="${liStyle}"><a href="${esc(p.link)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">${esc(p.title)}</a></li>`
-              )
-              .join("")}</ul>`;
-    return `
-<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 18px 0;">
-  <tr><td>
-    <div style="${subStyle}">${esc(sec.label)}</div>
-    ${err}${list}
-    ${browseRow}
-  </td></tr>
-</table>`;
-  });
 
   const e = bottom.earnings;
-  const earnErr = e.fetchError
-    ? `<p style="${metaStyle}">${esc(e.fetchError)}</p>`
+  const yt = e.youtubeUrl
+    ? ` · <a href="${esc(e.youtubeUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">YouTube</a> (your pick)`
     : "";
+  const linksRow = `<p style="${metaStyle}"><a href="${esc(e.calendarUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Full earnings calendar</a>${yt}</p>`;
+
+  const earnErr =
+    flags.showEarningsWeekTable && e.fetchError ? `<p style="${metaStyle}">${esc(e.fetchError)}</p>` : "";
   const earnRows =
-    e.rows.length === 0 && !e.fetchError
-      ? `<p style="${metaStyle}">No rows returned for this week (check FMP key or date range).</p>`
-      : e.rows.length === 0
-        ? ""
-        : `<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171717;">
+    !flags.showEarningsWeekTable
+      ? ""
+      : e.rows.length === 0 && !e.fetchError
+        ? `<p style="${metaStyle}">No rows returned for this week.</p>`
+        : e.rows.length === 0
+          ? ""
+          : `<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171717;margin:0 0 18px 0;">
   <tr>
     <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Symbol</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Company</td>
     <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Date</td>
-    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Time</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Time (ET)</td>
   </tr>
   ${e.rows
+    .slice(0, digestHtmlEarningsRowsCap())
     .map(
       (r) => `<tr>
     <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.symbol)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.companyName)}</td>
     <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.date)}</td>
     <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.timeLabel ?? "—")}</td>
   </tr>`
@@ -335,22 +371,106 @@ function buildDigestBottomHtml(bottom: DigestBottomPayload): string {
     .join("")}
 </table>`;
 
-  const yt = e.youtubeUrl
-    ? ` · <a href="${esc(e.youtubeUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">YouTube</a> (your pick)`
-    : "";
-  const linksRow = `<p style="${metaStyle}"><a href="${esc(e.calendarUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Full earnings calendar</a>${yt}</p>`;
+  const earningsSection =
+    flags.showEarningsWeekTable
+      ? `<h2 style="margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Earnings reports this week</h2>
+    <p style="${metaStyle}">${esc(e.weekLabel || "Reporting week")} · Times per provider.</p>
+    ${earnErr}${earnRows}
+    ${linksRow}`
+      : "";
+
+  const calls = bottom.earningsCalls;
+  const callsRows =
+    flags.showEarningsCallHubs && calls?.rows?.length
+      ? `<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171717;margin:0 0 22px 0;">
+  <tr>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Symbol</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Company</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Date</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #d8d1c7;font-weight:700;">Call / webcast hub</td>
+  </tr>
+  ${calls.rows
+    .slice(0, digestHtmlCallsRowsCap())
+    .map(
+      (r) => `<tr>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.symbol)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.companyName)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;">${esc(r.date)}</td>
+    <td style="padding:6px 8px;border-bottom:1px solid #ece6db;"><a href="${esc(r.hubUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">${esc(r.hubLabel)}</a></td>
+  </tr>`
+    )
+    .join("")}
+</table>`
+      : "";
+  const callsErr =
+    flags.showEarningsCallHubs && calls?.fetchError
+      ? `<p style="${metaStyle}">${esc(calls.fetchError)}</p>`
+      : "";
+  const callsSection =
+    flags.showEarningsCallHubs && (calls?.rows?.length || calls?.fetchError)
+      ? `<h2 style="margin:22px 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Live earnings calls &amp; replays</h2>
+    <p style="${metaStyle}">${esc(calls?.weekLabel ?? e.weekLabel)} · Hub pages often list webcast and replay links when the issuer posts them.</p>
+    ${callsErr}${callsRows}`
+      : "";
+
+  const redditBlocks = flags.showReddit
+    ? bottom.reddit.map((sec) => {
+          const browseUrl = `https://old.reddit.com/r/${sec.subreddit}/hot/`;
+          const browseRow = `<p style="${metaStyle}"><a href="${esc(browseUrl)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Open r/${esc(sec.subreddit)} on Reddit →</a></p>`;
+          const err = sec.error
+            ? `<p style="${metaStyle}">Could not load Reddit JSON: ${esc(sec.error)}</p>`
+            : "";
+          const list =
+            sec.posts.length === 0 && !sec.error
+              ? `<p style="${metaStyle}">No posts returned.</p>`
+              : sec.error
+                ? ""
+                : `<ul style="margin:0;padding:0 0 0 18px;list-style:disc;">${sec.posts
+                    .map((p) => {
+                      const thread = p.redditThreadUrl || `https://www.reddit.com/r/${sec.subreddit}/`;
+                      const external = p.link !== thread;
+                      const extNote = external
+                        ? ` · <a href="${esc(p.link)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Linked story</a>`
+                        : "";
+                      const displayTitle = clipSummary(p.title, 180);
+                      const metaBits = [
+                        typeof p.score === "number" ? `${p.score} upvotes` : "",
+                        typeof p.commentCount === "number" ? `${p.commentCount} comments` : "",
+                      ].filter(Boolean).join(" · ");
+                      const meta = metaBits ? ` · ${esc(metaBits)}` : "";
+                      return `<li style="${liStyle}">
+      <a href="${esc(p.link)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">${esc(displayTitle)}</a>
+      <div style="${smallStyle}">Source: <strong>Reddit</strong> · <a href="${esc(thread)}" target="_blank" rel="noopener noreferrer" style="${linkStyle}">Discussion thread on reddit.com</a>${extNote}</div>
+      ${meta ? `<div style="${smallStyle}">${meta}</div>` : ""}
+    </li>`;
+                    })
+                    .join("")}</ul>`;
+          return `
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 18px 0;">
+  <tr><td>
+    <div style="${subStyle}">Reddit · ${esc(sec.label)}</div>
+    ${err}${list}
+    ${browseRow}
+  </td></tr>
+</table>`;
+        })
+    : [];
+
+  const redditIntro =
+    flags.showReddit
+      ? `<h2 style="margin:22px 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">From Reddit</h2>
+    <p style="${metaStyle}">These headlines are pulled from <strong>Reddit</strong> (community posts, not our editorial picks). Story links may leave reddit.com; each item includes the Reddit discussion thread.</p>
+    ${redditBlocks.join("\n")}`
+      : "";
 
   return `
-<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:28px;padding-top:22px;border-top:2px solid #d8d1c7;">
+<table id="globo-digest-bottom" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:28px;padding-top:22px;border-top:2px solid #d8d1c7;">
   <tr><td>
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#5e5a55;margin-bottom:14px;">More at the bottom</div>
-    <h2 style="margin:0 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Reddit — what’s hot</h2>
-    <p style="${metaStyle}">Top posts from each sub (today). Not endorsed — for orientation only.</p>
-    ${redditBlocks.join("\n")}
-    <h2 style="margin:22px 0 6px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#171717;">Earnings this week</h2>
-    <p style="${metaStyle}">${esc(e.weekLabel)} · Times are as reported by the data provider when available.</p>
-    ${earnErr}${earnRows}
-    ${linksRow}
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#5e5a55;margin-bottom:14px;">Globo supplements</div>
+    ${reviewBlock}
+    ${earningsSection}
+    ${callsSection}
+    ${redditIntro}
   </td></tr>
 </table>`;
 }
@@ -363,17 +483,18 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
   const when = esc(new Date(p.generatedAt).toUTCString());
   const notes = p.masterNotes ? esc(p.masterNotes) : "";
   const err = p.error ? esc(p.error) : "";
-  const edition = esc(formatEditionDate(p.generatedAt));
+  const edition = esc(formatEditionHeaderRight(p.generatedAt));
   const flat = p.flat;
   const curator = esc(p.curatorFooterLine);
   const bottomHtml = p.digestBottom ? buildDigestBottomHtml(p.digestBottom) : "";
 
   if (flat.length === 0) {
     return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Globo News 24</title><style>${EDITORIAL_CSS}</style></head>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${esc(htmlDocumentTitle())}</title><style>${EDITORIAL_CSS}</style></head>
 <body style="margin:0;padding:32px 16px;background:#f3efe7;">
 <table class="frame" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="max-width:760px;margin:0 auto;background:#fbf8f2;border:1px solid #d8d1c7;">
 <tr><td class="inner" style="padding:28px 28px 36px;">
+  <p style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#5e5a55;margin:0 0 12px 0;">${edition}</p>
   <p style="font-family:Georgia,serif;">No stories in this digest. ${err ? `(${err})` : ""}</p>
   <p style="font-family:Arial,sans-serif;font-size:12px;color:#5e5a55;">Generated: ${when} · ${curator}</p>
   ${bottomHtml}
@@ -407,7 +528,7 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="x-ua-compatible" content="ie=edge"/>
-  <title>The Editorial Digest</title>
+  <title>${esc(htmlDocumentTitle())}</title>
   <style type="text/css">${EDITORIAL_CSS}</style>
 </head>
 <body style="margin:0;padding:32px 16px;background:#f3efe7;color:#171717;font-family:Georgia,'Times New Roman',serif;line-height:1.45;">
@@ -426,6 +547,7 @@ export function buildEditorialDigestHtml(p: EditorialDigestParams): string {
           <tr>
             <td style="text-align:center;padding:18px 0 10px 0;">
               <div style="font-family:Arial,Helvetica,sans-serif;text-transform:uppercase;letter-spacing:0.22em;font-size:11px;color:#5e5a55;margin-bottom:8px;">Global Briefing</div>
+              ${editionHeroBadgeHtml()}
               <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:46px;line-height:0.95;font-weight:700;letter-spacing:-0.03em;color:#171717;">The Editorial Digest</h1>
               <p style="margin:14px auto 0;max-width:560px;text-align:center;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.55;color:#5e5a55;">
                 ${esc(p.subdeck)}
@@ -492,6 +614,8 @@ export function buildBrutalistPlain(out: MasterCuratedOutput): string {
   const rows: string[] = [];
   rows.push("================================================================");
   rows.push("GLOBAL NEWS — GLOBO NEWS 24");
+  const editionPlain = getEditionDisplayLong();
+  if (editionPlain) rows.push(`Edition: ${editionPlain} (${formatDateEt(out.generatedAt)} ET)`);
   rows.push(`Generated: ${when}`);
   rows.push(`Curator: ${out.curatedBy}${out.error ? ` | ${out.error}` : ""}`);
   if (out.masterNotes) rows.push(`Notes: ${out.masterNotes}`);
@@ -526,35 +650,61 @@ export function buildBrutalistPlain(out: MasterCuratedOutput): string {
 
   if (out.digestBottom) {
     const b = out.digestBottom;
+    const f = b.flags;
     rows.push("");
-    rows.push("--- MORE AT THE BOTTOM (REDDIT HOT) ---");
-    for (const sec of b.reddit) {
+    rows.push("--- GLOBO SUPPLEMENTS (BOTTOM OF EMAIL) ---");
+    if (b.supplementReview && f.showBottomReview) {
       rows.push("");
-      rows.push(sec.label);
-      if (sec.error) rows.push(`  (error: ${sec.error})`);
-      else if (sec.posts.length === 0) rows.push("  (no posts)");
-      else {
-        sec.posts.forEach((p, i) => {
-          rows.push(`  ${i + 1}. ${p.title}`);
-          rows.push(`     ${p.link}`);
+      rows.push("Editor's note (supplements):");
+      rows.push(`  ${b.supplementReview.text}`);
+    }
+    if (f.showEarningsWeekTable) {
+      rows.push("");
+      rows.push("--- EARNINGS REPORTS THIS WEEK ---");
+      rows.push(b.earnings.weekLabel);
+      if (b.earnings.fetchError) rows.push(`Note: ${b.earnings.fetchError}`);
+      if (b.earnings.rows.length) {
+        b.earnings.rows.forEach((r) => {
+          const t = r.timeLabel ? ` · ${r.timeLabel}` : "";
+          rows.push(`  ${r.date}  ${r.symbol} — ${r.companyName}${t}`);
         });
+      } else if (!b.earnings.fetchError) {
+        rows.push("  (no rows)");
       }
-      rows.push(`  Browse hot: https://old.reddit.com/r/${sec.subreddit}/hot/`);
+      rows.push(`Full calendar: ${b.earnings.calendarUrl}`);
+      if (b.earnings.youtubeUrl) rows.push(`YouTube: ${b.earnings.youtubeUrl}`);
     }
-    rows.push("");
-    rows.push("--- EARNINGS THIS WEEK ---");
-    rows.push(b.earnings.weekLabel);
-    if (b.earnings.fetchError) rows.push(`Note: ${b.earnings.fetchError}`);
-    if (b.earnings.rows.length) {
-      b.earnings.rows.forEach((r) => {
-        const t = r.timeLabel ? ` · ${r.timeLabel}` : "";
-        rows.push(`  ${r.date}  ${r.symbol}${t}`);
+    if (f.showEarningsCallHubs && b.earningsCalls?.rows?.length) {
+      rows.push("");
+      rows.push("--- EARNINGS CALL HUBS (live / replay) ---");
+      b.earningsCalls.rows.forEach((h) => {
+        rows.push(`  ${h.symbol} ${h.date} — ${h.hubLabel}: ${h.hubUrl}`);
       });
-    } else if (!b.earnings.fetchError) {
-      rows.push("  (no rows)");
     }
-    rows.push(`Full calendar: ${b.earnings.calendarUrl}`);
-    if (b.earnings.youtubeUrl) rows.push(`YouTube: ${b.earnings.youtubeUrl}`);
+    if (f.showReddit) {
+      rows.push("");
+      rows.push("--- FROM REDDIT (user posts; source: reddit.com) ---");
+      for (const sec of b.reddit) {
+        rows.push("");
+        rows.push(`Reddit · ${sec.label}`);
+        if (sec.error) rows.push(`  (error: ${sec.error})`);
+        else if (sec.posts.length === 0) rows.push("  (no posts)");
+        else {
+          sec.posts.forEach((p, i) => {
+            const thread = p.redditThreadUrl ?? `https://www.reddit.com/r/${sec.subreddit}/`;
+            rows.push(`  ${i + 1}. ${clipSummary(p.title, 180)}`);
+            rows.push(`     Link: ${p.link}`);
+            rows.push(`     Reddit thread: ${thread}`);
+            const meta = [
+              typeof p.score === "number" ? `${p.score} upvotes` : "",
+              typeof p.commentCount === "number" ? `${p.commentCount} comments` : "",
+            ].filter(Boolean).join(" · ");
+            if (meta) rows.push(`     ${meta}`);
+          });
+        }
+        rows.push(`  Subreddit: https://old.reddit.com/r/${sec.subreddit}/hot/`);
+      }
+    }
   }
 
   rows.push("================================================================");

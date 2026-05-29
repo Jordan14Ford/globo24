@@ -4,10 +4,10 @@ The topics pipeline can append a **“More at the bottom”** block to the HTML/
 
 ## What it includes
 
-1. **Reddit — what’s hot** — public RSS per subreddit (`old.reddit.com/r/{sub}/hot.rss`):
-   - r/worldnews, r/artificial, r/economics, r/StockMarket  
-   Config: `config/redditDigest.ts`. Env: `REDDIT_POSTS_PER_SUB` (default 6).  
-   **Note:** Reddit sometimes returns **403** to server-side fetches; each subsection still includes a **“Browse … on Reddit”** link so readers can open the hot tab in a browser.
+1. **Reddit** — configured subreddit sections via Reddit listing JSON (`hot`, `top-day` by default), with RSS fallback and optional OAuth:
+   - r/worldnews, r/geopolitics, r/artificial, r/MachineLearning, r/LocalLLaMA, r/technology, r/design, r/UI_Design, r/economics, r/MacroEconomics, r/StockMarket, r/investing
+   Config: `config/redditDigest.ts`. Env: `REDDIT_POSTS_PER_SUB` (default 3), `REDDIT_SORTS`, and optional `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`.
+   **Note:** Public Reddit endpoints can return **403** to server-side fetches; OAuth credentials are recommended for scheduled Actions runs.
 
 2. **Earnings this week** — Monday–Sunday in **America/New_York**:
    - With **`FMP_API_KEY`**: rows from [Financial Modeling Prep](https://site.financialmodelingprep.com/) `earning_calendar`.
@@ -22,7 +22,9 @@ The topics pipeline can append a **“More at the bottom”** block to the HTML/
 | Variable | Purpose |
 |----------|---------|
 | `DIGEST_BOTTOM_SECTIONS` | `0` / `false` / `no` to disable the whole block |
-| `REDDIT_POSTS_PER_SUB` | 1–15, default 6 |
+| `REDDIT_POSTS_PER_SUB` | 1-15, default 3 |
+| `REDDIT_SORTS` | Comma-separated listing sources, default `hot,top-day` |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Optional Reddit OAuth credentials for scheduled server-side pulls |
 | `FMP_API_KEY` | Populate the earnings table |
 | `EARNINGS_CALENDAR_URL` | Outbound “Full earnings calendar” link |
 | `EARNINGS_YOUTUBE_URL` | Outbound “YouTube (your pick)” link |

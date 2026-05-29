@@ -2,7 +2,7 @@
 
 The **orchestrator** (`npm run orchestrate` / `npm run run:scheduled`) wraps the existing **`npm run pipeline`** + **`sendDigest`** flow:
 
-1. **America/New_York** send windows (default): **09:00–11:59** and **17:30–19:59** local Eastern (Luxon; EST/EDT automatic). Windows are deliberately wide so **GitHub Actions schedule delays** still count as that day’s morning or evening edition; **dedupe** still allows only one successful send per `slotKey` per day.
+1. **America/New_York** send windows (default): **09:00-10:00** and **16:00-18:00** local Eastern (Luxon; EST/EDT automatic). **Dedupe** allows only one successful send per `slotKey` per day.
 2. **Duplicate prevention**: after a successful send, a record is appended to **`data/send-history.json`** (or **`SEND_HISTORY_PATH`**) keyed by **`slotKey`** (e.g. `2025-03-19-morning`, `2025-03-19-evening`, or `2025-03-19-manual` when forced).
 3. **Clear logs**: `[orchestrate] SKIP — …` or `[orchestrate] PROCEED — …` then pipeline output.
 
@@ -45,7 +45,7 @@ Expect: `[orchestrate] decision` with `action`, `reason`, `slotKey`; **exit code
 
 ### 3. Auto mode outside windows (skip)
 
-Pick a time **not** in 09:00–11:59 or 17:30–19:59 Eastern, or temporarily patch `eastern.ts` in a throwaway branch for testing.
+Pick a time **not** in 09:00-10:00 or 16:00-18:00 Eastern, or temporarily patch `eastern.ts` in a throwaway branch for testing.
 
 ```bash
 ORCHESTRATE_MODE=auto npx tsx scripts/orchestrate.ts
@@ -84,7 +84,7 @@ Expect: same behavior as before Phase 1 (no schedule gate).
 
 Workflow: [`.github/workflows/global-news-digest.yml`](../.github/workflows/global-news-digest.yml) (or monorepo root copy — see **[GITHUB_ACTIONS.md](./GITHUB_ACTIONS.md)**).
 
-- **Cron** (UTC): `0 13,14 * * *` and `30 21,22 * * *` — aligns with **~09:00** and **~17:30 America/New_York**; the **orchestrator** enforces **09:00–09:18** and **17:30–17:48** in code (absorbs short queue delay).
+- **Cron** (UTC): `0,30 13,14 * * *` and `0,30 20,21,22 * * *` — covers the **09:00-10:00** and **16:00-18:00** America/New_York windows across EST/EDT; the **orchestrator** enforces the final time gate.
 - **`workflow_dispatch`**: input **force_run** (default **true**) → `ORCHESTRATE_MODE=force` to bypass the window; set **false** to behave like scheduled runs (`auto`). Still dedupes on `YYYY-MM-DD-manual` when forced unless `SKIP_DEDUPE=1`.
 - **Cache**: `data/send-history.json` is restored/saved so duplicate prevention persists across workflow runs (not perfect across all edge cases, but sufficient for typical scheduled usage).
 

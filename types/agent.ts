@@ -10,6 +10,10 @@ export type AgentId =
   | "regions.search"
   | "regions.rank"
   | "regions.compile"
+  | "supplement.reddit"
+  | "supplement.earnings_week"
+  | "supplement.earnings_calls"
+  | "supplement.bottom_review"
   | "delivery.email";
 
 export type PipelineModeScope = "topics" | "regions" | "any";
@@ -17,7 +21,7 @@ export type PipelineModeScope = "topics" | "regions" | "any";
 export interface AgentRegistryEntry {
   id: AgentId;
   label: string;
-  stage: "search" | "review" | "compile" | "deliver";
+  stage: "search" | "review" | "compile" | "supplement" | "deliver";
   mode: PipelineModeScope;
   enabledByDefault: boolean;
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 import "./loadEnv";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -20,10 +20,13 @@ import {
   saveAdminSettings,
 } from "../lib/admin/settingsStore";
 import type { AgentId } from "../types/agent";
+import { fetchEarningsDigestSection } from "../lib/supplements/fetchEarningsWeek";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const UI_FILE = path.join(ROOT, "admin", "index.html");
+const EMAIL_PREVIEW_FILE = path.join(ROOT, "admin", "email-preview.html");
+const DIGEST_HTML_FILE = path.join(ROOT, "output", "digest.html");
 
 type Json = Record<string, unknown>;
 
@@ -36,10 +39,56 @@ function sendJson(res: ServerResponse, statusCode: number, payload: Json): void 
   res.end(body);
 }
 
-function sendHtml(res: ServerResponse): void {
-  const html = readFileSync(UI_FILE, "utf-8");
+function sendHtmlFile(res: ServerResponse, filePath: string): void {
+  const html = readFileSync(filePath, "utf-8");
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
+}
+
+function readPreviewDigestHtml(): string {
+  if (!existsSync(DIGEST_HTML_FILE)) {
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digest Missing</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        background: #f3efe7;
+        color: #171717;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .frame {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 28px;
+        background: #fbf8f2;
+        border: 1px solid #d8d1c7;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.95em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <h1 style="margin:0 0 12px;font-size:32px;line-height:1.05;">Digest preview unavailable</h1>
+      <p style="margin:0 0 12px;font-size:18px;line-height:1.5;color:#5e5a55;">
+        <code>output/digest.html</code> does not exist yet. Run <code>npm run pipeline</code> to generate the current email, then reload this preview.
+      </p>
+    </div>
+  </body>
+</html>`;
+  }
+
+  return readFileSync(DIGEST_HTML_FILE, "utf-8").replace(
+    /<script\s+src="https:\/\/mcp\.figma\.com\/mcp\/html-to-design\/capture\.js"\s+async><\/script>\s*/i,
+    ""
+  );
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<Json> {
@@ -69,7 +118,17 @@ const server = createServer(async (req, res) => {
     const method = req.method ?? "GET";
 
     if (method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
-      return sendHtml(res);
+      return sendHtmlFile(res, UI_FILE);
+    }
+
+    if (method === "GET" && url.pathname === "/preview/email") {
+      return sendHtmlFile(res, EMAIL_PREVIEW_FILE);
+    }
+
+    if (method === "GET" && url.pathname === "/preview/email/raw") {
+      const html = readPreviewDigestHtml();
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end(html);
     }
 
     if (method === "GET" && url.pathname === "/api/overview") {
@@ -131,6 +190,11 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { total: rows.length, rows });
     }
 
+    if (method === "GET" && url.pathname === "/api/earnings") {
+      const section = await fetchEarningsDigestSection();
+      return sendJson(res, 200, section as unknown as Json);
+    }
+
     if (method === "GET" && url.pathname === "/api/settings") {
       ensureAdminSettingsFileExists();
       return sendJson(res, 200, loadAdminSettings() as unknown as Json);
@@ -139,8 +203,7 @@ const server = createServer(async (req, res) => {
     if (method === "POST" && url.pathname === "/api/settings") {
       const body = await readJsonBody(req);
       const updated = saveAdminSettings({
-        pipelineModeDefault:
-          body.pipelineModeDefault === "regions" ? "regions" : body.pipelineModeDefault === "topics" ? "topics" : undefined,
+        pipelineModeDefault: body.pipelineModeDefault === "topics" ? "topics" : undefined,
         orchestrateModeDefault:
           body.orchestrateModeDefault === "auto" ||
           body.orchestrateModeDefault === "force" ||
@@ -167,4 +230,5 @@ const server = createServer(async (req, res) => {
 const port = Number(process.env.ADMIN_PORT ?? 8787);
 server.listen(port, () => {
   console.log(`[admin] http://localhost:${port}`);
+  console.log(`[preview] http://localhost:${port}/preview/email`);
 });

@@ -55,6 +55,8 @@ export interface DecideOptions {
   /** Override clock (ISO 8601), for tests. */
   nowIso?: string;
   windowMinutes?: number;
+  /** Intended slot from the scheduler, used for bounded catch-up after provider queue delays. */
+  scheduledSlot?: SendSlot;
 }
 
 /** How the digest was delivered (matches `SendDigestResult` in `lib/email/sendDigest.ts`). */

@@ -195,49 +195,61 @@ async function fetchRssListing(
   spec: ListingSpec,
   limit: number
 ): Promise<{ posts: RedditDigestPost[]; error?: string }> {
-  try {
-    const path = rssPathForSpec(spec);
-    const joiner = path.includes("?") ? "&" : "?";
-    const url = `https://old.reddit.com/r/${subreddit}/${path}${joiner}limit=${limit}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT, Accept: "application/atom+xml, application/rss+xml, text/xml" },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      return { posts: [], error: `rss-${spec.key}: HTTP ${res.status}` };
+  const paths = spec.key === "hot" ? [".rss", rssPathForSpec(spec)] : [rssPathForSpec(spec)];
+  const urls = ["https://www.reddit.com", "https://old.reddit.com"].flatMap((host) =>
+    paths.map((path) => {
+      const joiner = path.includes("?") ? "&" : "?";
+      return `${host}/r/${subreddit}/${path}${joiner}limit=${limit}`;
+    })
+  );
+  const errors: string[] = [];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "application/atom+xml, application/rss+xml, text/xml",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        errors.push(`${new URL(url).hostname}: HTTP ${res.status}`);
+        continue;
+      }
+      const feed = await sharedParser.parseString(await res.text());
+      const posts: (RedditDigestPost | null)[] = (feed.items as RedditRssItem[]).map((item) => {
+        const title = (item.title ?? "").replace(/\s+/g, " ").trim();
+        const redditThreadUrl =
+          hrefForLabel(item.content, "[comments]") ??
+          normalizeRedditUrl(item.link) ??
+          `https://www.reddit.com/r/${subreddit}/`;
+        const linked = hrefForLabel(item.content, "[link]");
+        const link = linked && !linked.includes("reddit.com") ? linked : redditThreadUrl;
+        const createdUtc =
+          item.isoDate || item.pubDate
+            ? Math.floor(new Date(item.isoDate ?? item.pubDate ?? "").getTime() / 1000)
+            : undefined;
+        if (!title || !redditThreadUrl) return null;
+        const post: RedditDigestPost = {
+          title,
+          link,
+          redditThreadUrl,
+          createdUtc: Number.isFinite(createdUtc) ? createdUtc : undefined,
+          listings: [`rss-${spec.key}`],
+        };
+        return post;
+      });
+      const valid = posts.filter((post): post is RedditDigestPost => post !== null);
+      if (valid.length > 0) return { posts: valid };
+      errors.push(`${new URL(url).hostname}: empty feed`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${new URL(url).hostname}: ${msg}`);
     }
-    const feed = await sharedParser.parseString(await res.text());
-    const posts: (RedditDigestPost | null)[] = (feed.items as RedditRssItem[]).map((item) => {
-      const title = (item.title ?? "").replace(/\s+/g, " ").trim();
-      const redditThreadUrl =
-        hrefForLabel(item.content, "[comments]") ??
-        normalizeRedditUrl(item.link) ??
-        `https://www.reddit.com/r/${subreddit}/`;
-      const linked = hrefForLabel(item.content, "[link]");
-      const link =
-        linked && !linked.includes("reddit.com")
-          ? linked
-          : redditThreadUrl;
-      const createdUtc = item.isoDate || item.pubDate
-        ? Math.floor(new Date(item.isoDate ?? item.pubDate ?? "").getTime() / 1000)
-        : undefined;
-      if (!title || !redditThreadUrl) return null;
-      const post: RedditDigestPost = {
-        title,
-        link,
-        redditThreadUrl,
-        createdUtc: Number.isFinite(createdUtc) ? createdUtc : undefined,
-        listings: [`rss-${spec.key}`],
-      };
-      return post;
-    });
-    return {
-      posts: posts.filter((post): post is RedditDigestPost => post !== null),
-    };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { posts: [], error: `rss-${spec.key}: ${msg}` };
   }
+
+  return { posts: [], error: `rss-${spec.key}: ${errors.join("; ")}` };
 }
 
 function mergePosts(listings: RedditDigestPost[][]): RedditDigestPost[] {

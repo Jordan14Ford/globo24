@@ -70,13 +70,13 @@ function resolveImage(a: NormalizedArticle, index: number): string {
 
 /** Caps supplement table rows in HTML to reduce Gmail clipping (full data remains in pipeline JSON). */
 function digestHtmlEarningsRowsCap(): number {
-  const n = Number(process.env.DIGEST_HTML_EARNINGS_MAX ?? "10");
-  return Number.isFinite(n) && n >= 1 && n <= 50 ? Math.floor(n) : 10;
+  const n = Number(process.env.DIGEST_HTML_EARNINGS_MAX ?? "8");
+  return Number.isFinite(n) && n >= 1 && n <= 50 ? Math.floor(n) : 8;
 }
 
 function digestHtmlCallsRowsCap(): number {
-  const n = Number(process.env.DIGEST_HTML_CALLS_MAX ?? "8");
-  return Number.isFinite(n) && n >= 1 && n <= 40 ? Math.floor(n) : 8;
+  const n = Number(process.env.DIGEST_HTML_CALLS_MAX ?? "6");
+  return Number.isFinite(n) && n >= 1 && n <= 40 ? Math.floor(n) : 6;
 }
 
 function clipSummary(s: string, max: number): string {

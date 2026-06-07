@@ -22,6 +22,7 @@ import { sendDigest } from "../lib/email/sendDigest";
 import { recordSentUrls } from "../lib/content/sentArticles";
 import { decideSchedule } from "../lib/schedule/scheduleDecision";
 import type { OrchestrateMode } from "../types/schedule";
+import type { SendSlot } from "../types/schedule";
 import { isProceedDecision } from "../types/schedule";
 import type { MasterCuratedOutput } from "../types/pipeline";
 import {
@@ -62,6 +63,12 @@ function parseMode(): OrchestrateMode {
   return "auto";
 }
 
+function parseScheduledSlot(): SendSlot | undefined {
+  const slot = (process.env.SCHEDULE_SLOT ?? "").trim().toLowerCase();
+  if (slot === "morning" || slot === "evening") return slot;
+  return undefined;
+}
+
 function selectedUrlsFromPipelineOutput(): string[] {
   const outputPath = path.join(ROOT, "output", "pipeline-output.json");
   try {
@@ -93,7 +100,8 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const decision = decideSchedule(mode === "force" ? "force" : "auto");
+  const scheduledSlot = mode === "auto" ? parseScheduledSlot() : undefined;
+  const decision = decideSchedule(mode === "force" ? "force" : "auto", { scheduledSlot });
 
   if (!isProceedDecision(decision)) {
     log(`SKIP — ${decision.reason}`);

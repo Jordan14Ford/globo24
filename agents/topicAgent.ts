@@ -40,6 +40,21 @@ function isArticleAllowed(url: string): boolean {
   }
 }
 
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesTopicTerms(text: string, terms: string[]): boolean {
+  return terms.some((term) => {
+    const normalized = term.trim();
+    if (!normalized) return false;
+    if (normalized.length <= 3) {
+      return new RegExp(`\\b${escapeRe(normalized)}\\b`, "i").test(text);
+    }
+    return text.toLowerCase().includes(normalized.toLowerCase());
+  });
+}
+
 /**
  * Fetch Google News RSS + optional supplements (e.g. BBC), normalize, allowlist hosts, dedupe, cap.
  */
@@ -47,9 +62,9 @@ export async function runTopicAgent(config: TopicFeedConfig): Promise<TopicAgent
   const errors: string[] = [];
   const raw: NormalizedArticle[] = [];
 
-  const feeds: { url: string; name: string }[] = [
-    { url: config.googleNewsRssUrl, name: "Google News (topic)" },
-    ...(config.supplementalFeeds ?? []),
+  const feeds: { url: string; name: string; topicScoped: boolean }[] = [
+    { url: config.googleNewsRssUrl, name: "Google News (topic)", topicScoped: true },
+    ...(config.supplementalFeeds ?? []).map((feed) => ({ ...feed, topicScoped: false })),
   ];
 
   for (const feed of feeds) {
@@ -57,8 +72,16 @@ export async function runTopicAgent(config: TopicFeedConfig): Promise<TopicAgent
       const parsed = await sharedParser.parseURL(feed.url);
       const items = parsed.items ?? [];
       log(config.id, `Fetched ${items.length} items from ${feed.name}`);
+      let relevanceDropped = 0;
 
       for (const item of items) {
+        const title = (item.title ?? "Untitled").trim();
+        const summary = (item.contentSnippet ?? item.summary ?? "").slice(0, 2000);
+        if (!feed.topicScoped && !matchesTopicTerms(`${title} ${summary}`, config.relevanceTerms)) {
+          relevanceDropped++;
+          continue;
+        }
+
         const link = normalizeLink(item.link ?? item.guid);
         if (!link) continue;
         if (!isArticleAllowed(link)) {
@@ -69,14 +92,17 @@ export async function runTopicAgent(config: TopicFeedConfig): Promise<TopicAgent
         const domain = new URL(link).hostname;
         const imageUrl = extractRssImage(item);
         raw.push({
-          title: (item.title ?? "Untitled").trim(),
+          title,
           link,
-          summary: (item.contentSnippet ?? item.summary ?? "").slice(0, 2000),
+          summary,
           publishedAt: item.pubDate ?? item.isoDate ?? null,
           sourceFeedName: feed.name,
           domain,
           ...(imageUrl ? { imageUrl } : {}),
         });
+      }
+      if (relevanceDropped > 0) {
+        log(config.id, `Filtered ${relevanceDropped} off-topic items from ${feed.name}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

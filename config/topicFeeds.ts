@@ -19,6 +19,8 @@ export interface TopicFeedConfig {
   label: string;
   /** Primary Google News RSS search URL (US English) */
   googleNewsRssUrl: string;
+  /** Terms required for broad supplemental-feed items to enter this topic's candidate pool. */
+  relevanceTerms: string[];
   /** Optional extra RSS URLs (e.g. BBC section) */
   supplementalFeeds?: { url: string; name: string }[];
 }
@@ -44,6 +46,19 @@ export const TOPICS: TopicFeedConfig[] = [
     googleNewsRssUrl: gnUrl(
       "technology OR artificial intelligence OR semiconductor OR software OR cybersecurity"
     ),
+    relevanceTerms: [
+      "AI",
+      "artificial intelligence",
+      "technology",
+      "semiconductor",
+      "software",
+      "cybersecurity",
+      "cloud",
+      "chip",
+      "Nvidia",
+      "data center",
+      "robotics",
+    ],
     supplementalFeeds: [
       ...SUPPLEMENTAL_PUBLISHER_FEEDS,
       { url: "https://feeds.bbci.co.uk/news/technology/rss.xml", name: "BBC Technology" },
@@ -55,6 +70,20 @@ export const TOPICS: TopicFeedConfig[] = [
     googleNewsRssUrl: gnUrl(
       "geopolitics OR diplomacy OR sanctions OR NATO OR conflict OR elections foreign policy"
     ),
+    relevanceTerms: [
+      "geopolitics",
+      "diplomacy",
+      "sanctions",
+      "NATO",
+      "conflict",
+      "election",
+      "foreign policy",
+      "military",
+      "China",
+      "Russia",
+      "Ukraine",
+      "Iran",
+    ],
     supplementalFeeds: [
       ...SUPPLEMENTAL_PUBLISHER_FEEDS,
       { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "BBC World" },
@@ -66,6 +95,22 @@ export const TOPICS: TopicFeedConfig[] = [
     googleNewsRssUrl: gnUrl(
       "central bank OR interest rates OR inflation OR Federal Reserve OR ECB OR bond yields OR FX OR currency markets"
     ),
+    relevanceTerms: [
+      "central bank",
+      "Federal Reserve",
+      "Fed",
+      "ECB",
+      "interest rate",
+      "inflation",
+      "CPI",
+      "bond",
+      "yield",
+      "Treasury",
+      "FX",
+      "currency",
+      "dollar",
+      "liquidity",
+    ],
     supplementalFeeds: [
       ...SUPPLEMENTAL_PUBLISHER_FEEDS,
       { url: "https://feeds.bbci.co.uk/news/business/rss.xml", name: "BBC Business" },
@@ -77,6 +122,20 @@ export const TOPICS: TopicFeedConfig[] = [
     googleNewsRssUrl: gnUrl(
       "economy OR GDP OR recession OR unemployment OR trade OR tariffs OR IMF OR jobs report"
     ),
+    relevanceTerms: [
+      "economy",
+      "economic",
+      "GDP",
+      "recession",
+      "unemployment",
+      "jobs",
+      "labor",
+      "trade",
+      "tariff",
+      "IMF",
+      "deficit",
+      "growth",
+    ],
     supplementalFeeds: [
       ...SUPPLEMENTAL_PUBLISHER_FEEDS,
       { url: "https://feeds.bbci.co.uk/news/business/economy/rss.xml", name: "BBC Economy" },
@@ -103,7 +162,7 @@ export const TOPIC_ALLOWED_HOSTS = new Set([
 ]);
 
 export const MAX_CANDIDATES_PER_TOPIC = Number(process.env.MAX_CANDIDATES_PER_TOPIC ?? 80);
-export const TOP_STORIES_PER_TOPIC = Number(process.env.TOP_STORIES_PER_TOPIC ?? 10);
+export const TOP_STORIES_PER_TOPIC = Number(process.env.TOP_STORIES_PER_TOPIC ?? 5);
 /** Floor for each pillar in the final digest (capped by `TOP_STORIES_PER_TOPIC`). */
 const minRaw = Number(process.env.MIN_STORIES_PER_TOPIC ?? 3);
 export const MIN_STORIES_PER_TOPIC = Math.min(

@@ -10,8 +10,8 @@ import { fetchSubreddit } from "../lib/supplements/fetchRedditHot";
 import type { RedditDigestPost, RedditDigestSubsection } from "../types/pipeline";
 
 function postsPerSub(): number {
-  const n = Number(process.env.REDDIT_POSTS_PER_SUB ?? "3");
-  return Number.isFinite(n) && n >= 1 && n <= 15 ? Math.floor(n) : 3;
+  const n = Number(process.env.REDDIT_POSTS_PER_SUB ?? "1");
+  return Number.isFinite(n) && n >= 1 && n <= 15 ? Math.floor(n) : 1;
 }
 
 function relevanceScore(title: string): number {
@@ -54,6 +54,9 @@ export async function runRedditDigestAgent(): Promise<RedditDigestSubsection[]> 
   for (const { subreddit, label } of REDDIGEST_SUBREDDITS) {
     const { posts, error } = await fetchSubreddit(subreddit, Math.max(cap * 2, 10));
     const filtered = error ? posts : rankAndFilter(posts, cap);
+    console.log(
+      `[reddit] r/${subreddit}: ${filtered.length} selected${error ? ` (${error})` : ""}`
+    );
     results.push({
       label,
       subreddit,

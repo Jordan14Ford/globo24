@@ -106,6 +106,91 @@ const NEGATIVE_PATTERNS: RegExp[] = [
   /\bmy top stock\b/i,
   /\bcould be next\b/i,
   /\bquietly outperforming\b/i,
+  /\bmy two cents\b/i,
+  /\bguest column\b/i,
+  /\bparody\b/i,
+  /\bshould not fear\b/i,
+  /\bteaches how to hear god\b/i,
+];
+
+const HARD_EXCLUDE_PATTERNS: RegExp[] = [
+  /\bmy two cents\b/i,
+  /\bguest column\b/i,
+  /\bparody\b/i,
+  /\bteaches how to hear god\b/i,
+  /\bmotley fool\b/i,
+  /\bbuy this\b/i,
+  /\bstocks? that also pay dividends\b/i,
+  /\bprediction:\b/i,
+  /\bover the next \d+ years?\b/i,
+  /\bprecision trading\b/i,
+  /\brisk zones\b/i,
+  /\bstocks? tumbling\b/i,
+  /\bstock traders daily\b/i,
+  /\bforeignpolicyjournal\.com\b/i,
+];
+
+const MARKET_IMPACT_KEYWORDS = [
+  "earnings",
+  "revenue",
+  "profit",
+  "margin",
+  "stock",
+  "shares",
+  "market",
+  "investor",
+  "investment",
+  "funding",
+  "valuation",
+  "acquisition",
+  "merger",
+  "ipo",
+  "regulation",
+  "policy",
+  "law",
+  "export",
+  "tariff",
+  "sanction",
+  "supply chain",
+  "manufacturing",
+  "chip",
+  "semiconductor",
+  "data center",
+  "cloud",
+  "cybersecurity",
+  "enterprise",
+  "contract",
+  "deal",
+  "demand",
+  "sales",
+  "guidance",
+  "forecast",
+  "layoff",
+  "jobs",
+  "rate",
+  "inflation",
+  "yield",
+  "bond",
+  "currency",
+  "oil",
+];
+
+const TRUSTED_PUBLISHERS = [
+  "reuters",
+  "bloomberg",
+  "cnbc",
+  "bbc",
+  "associated press",
+  "ap news",
+  "financial times",
+  "wall street journal",
+  "new york times",
+  "washington post",
+  "fortune",
+  "morningstar",
+  "council on foreign relations",
+  "c-span",
+  "consilium.europa.eu",
 ];
 
 const MAX_PER_DOMAIN_FALLBACK = 2;
@@ -129,12 +214,81 @@ function keywordScoreForTopic(topicId: TopicId, text: string): number {
   return s;
 }
 
+function keywordCount(text: string, keywords: string[]): number {
+  const t = text.toLowerCase();
+  let score = 0;
+  for (const keyword of keywords) {
+    if (t.includes(keyword.toLowerCase())) score++;
+  }
+  return score;
+}
+
+function trustedPublisherBoost(title: string, domain: string): number {
+  const publisher = extractPublisher(title, domain);
+  return TRUSTED_PUBLISHERS.some((trusted) => publisher.includes(trusted)) ? 2 : 0;
+}
+
 function negativePenalty(text: string): number {
   let p = 0;
   for (const re of NEGATIVE_PATTERNS) {
     if (re.test(text)) p += 2;
   }
   return p;
+}
+
+function isEligibleFallbackStory(
+  topicId: TopicId,
+  text: string,
+  topicRelevance: number,
+  marketImpact: number
+): boolean {
+  if (topicRelevance <= 0) return false;
+  if (HARD_EXCLUDE_PATTERNS.some((pattern) => pattern.test(text))) return false;
+  if (topicId === "tech" || topicId === "economics") return marketImpact > 0;
+  return true;
+}
+
+function titleTokens(title: string): Set<string> {
+  const stop = new Set([
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "the",
+    "to",
+    "with",
+  ]);
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length > 2 && !stop.has(token))
+  );
+}
+
+function isNearDuplicateTitle(candidate: NormalizedArticle, picked: NormalizedArticle[]): boolean {
+  const a = titleTokens(candidate.title);
+  if (a.size === 0) return false;
+  return picked.some((article) => {
+    const b = titleTokens(article.title);
+    if (b.size === 0) return false;
+    let overlap = 0;
+    for (const token of a) {
+      if (b.has(token)) overlap++;
+    }
+    const similarity = overlap / Math.min(a.size, b.size);
+    const samePublisher =
+      extractPublisher(candidate.title, candidate.domain) ===
+      extractPublisher(article.title, article.domain);
+    return similarity >= 0.65 || (samePublisher && similarity >= 0.4);
+  });
 }
 
 function recencyBoost(publishedAt: string | null): number {
@@ -165,10 +319,16 @@ function fallbackCurate(results: TopicAgentResult[]): MasterCuratedOutput {
   for (const tr of results) {
     const scored = tr.articles.map((a) => {
       const blob = `${a.title} ${a.summary}`;
+      const relevance = keywordScoreForTopic(tr.topicId, blob);
+      const marketImpact = keywordCount(blob, MARKET_IMPACT_KEYWORDS);
       return {
         a,
+        relevance,
+        eligible: isEligibleFallbackStory(tr.topicId, blob, relevance, marketImpact),
         score:
-          keywordScoreForTopic(tr.topicId, blob) -
+          relevance * 2 +
+          marketImpact * 1.5 +
+          trustedPublisherBoost(a.title, a.domain) -
           negativePenalty(blob) +
           recencyBoost(a.publishedAt) +
           (a.title.length > 40 ? 0.1 : 0),
@@ -178,7 +338,9 @@ function fallbackCurate(results: TopicAgentResult[]): MasterCuratedOutput {
 
     const pubCount = new Map<string, number>();
     const picked: NormalizedArticle[] = [];
-    for (const { a } of scored) {
+    for (const { a, eligible } of scored) {
+      if (!eligible) continue;
+      if (isNearDuplicateTitle(a, picked)) continue;
       const pub = extractPublisher(a.title, a.domain);
       const cnt = pubCount.get(pub) ?? 0;
       if (cnt >= MAX_PER_DOMAIN_FALLBACK) continue;
@@ -209,6 +371,7 @@ Tasks:
 2) Remove near-duplicates (same story reworded) within a topic.
 3) Return at most N indices per topic (given in user JSON as maxPerTopic), referring to each topic's article array indices (0-based).
 4) When there are enough distinct articles, include at least minPerTopic indices per topic (given in user JSON). If a topic has fewer candidates than minPerTopic, return as many distinct indices as exist.
+5) Exclude parody, generic opinion, religion/soft-interest uses of technology terms, local booster stories, and items without financial-market, policy, industry, or macroeconomic consequence.
 Output JSON only: { "selections": { "tech": number[], "geopolitics": number[], "macro": number[], "economics": number[] }, "notes": string }`;
 
 /**
@@ -354,10 +517,16 @@ export function ensureMinimumStoriesPerTopic(
 
     const scored = tr.articles.map((a) => {
       const blob = `${a.title} ${a.summary}`;
+      const relevance = keywordScoreForTopic(tr.topicId, blob);
+      const marketImpact = keywordCount(blob, MARKET_IMPACT_KEYWORDS);
       return {
         a,
+        relevance,
+        eligible: isEligibleFallbackStory(tr.topicId, blob, relevance, marketImpact),
         score:
-          keywordScoreForTopic(tr.topicId, blob) -
+          relevance * 2 +
+          marketImpact * 1.5 +
+          trustedPublisherBoost(a.title, a.domain) -
           negativePenalty(blob) +
           recencyBoost(a.publishedAt) +
           (a.title.length > 40 ? 0.1 : 0),
@@ -366,9 +535,11 @@ export function ensureMinimumStoriesPerTopic(
     scored.sort((x, y) => y.score - x.score);
 
     const inTopic = new Set(picked.map((a) => normUrl(a.link)));
-    for (const { a } of scored) {
+    for (const { a, eligible } of scored) {
       if (picked.length >= min) break;
       if (picked.length >= max) break;
+      if (!eligible) continue;
+      if (isNearDuplicateTitle(a, picked)) continue;
       const u = normUrl(a.link);
       if (inTopic.has(u)) continue;
       if (globalSeen.has(u)) continue;

@@ -28,8 +28,8 @@ export async function runEarningsCallsAgent(earnings: EarningsDigestSection): Pr
   }
 
   const cap = (() => {
-    const n = Number(process.env.DIGEST_HTML_CALLS_MAX ?? "12");
-    return Number.isFinite(n) && n >= 1 && n <= 40 ? Math.floor(n) : 12;
+    const n = Number(process.env.DIGEST_HTML_CALLS_MAX ?? "6");
+    return Number.isFinite(n) && n >= 1 && n <= 40 ? Math.floor(n) : 6;
   })();
   const rows = earnings.rows.slice(0, cap).map((r) => {
     const { hubUrl, hubLabel } = hubForRow(r);

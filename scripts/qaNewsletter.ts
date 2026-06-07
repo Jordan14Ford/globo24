@@ -15,6 +15,7 @@ import { REDDIGEST_SUBREDDITS } from "../config/redditDigest";
 import { resolveAgentRegistry } from "../lib/agents/registry";
 import { compactEmailHtml } from "../lib/email/compactHtml";
 import { checkSendWindow } from "../lib/schedule/eastern";
+import { decideSchedule } from "../lib/schedule/scheduleDecision";
 import { fetchEarningsDigestSection } from "../lib/supplements/fetchEarningsWeek";
 import { fetchSubreddit } from "../lib/supplements/fetchRedditHot";
 import type { MasterCuratedOutput, TopicId } from "../types/pipeline";
@@ -81,20 +82,63 @@ function checkWorkflowCron(): void {
   }
   const yaml = readFileSync(WORKFLOW, "utf-8");
   record(
-    boolStatus(yaml.includes('cron: "0,30 13,14 * * *"')),
+    boolStatus(yaml.includes('cron: "7,22,37,52 12,13,14 * * *"')),
     "workflow",
-    "Morning cron covers 09:00/09:30 ET in both EDT and EST"
+    "Morning retries start before the 09:00-10:00 ET window at off-peak minutes"
   );
   record(
-    boolStatus(yaml.includes('cron: "0,30 20,21,22 * * *"')),
+    boolStatus(yaml.includes('cron: "7,22,37,52 19,20,21,22 * * *"')),
     "workflow",
-    "Evening cron covers 16:00-18:00 ET in both EDT and EST"
+    "Evening retries start before the 16:00-18:00 ET window at off-peak minutes"
+  );
+  record(
+    boolStatus(yaml.includes("SCHEDULE_SLOT:")),
+    "workflow",
+    "Workflow preserves intended slot when GitHub queues a run late"
   );
   record(
     boolStatus(yaml.includes("REDDIT_CLIENT_ID") && yaml.includes("REDDIT_CLIENT_SECRET")),
     "workflow",
     "Workflow passes optional Reddit OAuth secrets into the digest job"
   );
+}
+
+function checkScheduledCatchup(): void {
+  const cases = [
+    {
+      label: "late morning trigger catches up before evening",
+      nowIso: "2026-06-01T14:43:00-04:00",
+      scheduledSlot: "morning" as const,
+      want: "morning",
+    },
+    {
+      label: "morning trigger cannot leak into evening",
+      nowIso: "2026-06-01T16:05:00-04:00",
+      scheduledSlot: "morning" as const,
+      want: null,
+    },
+    {
+      label: "late evening trigger catches up the same night",
+      nowIso: "2026-06-01T18:27:00-04:00",
+      scheduledSlot: "evening" as const,
+      want: "evening",
+    },
+    {
+      label: "early queued trigger waits for its target window",
+      nowIso: "2026-06-01T08:30:00-04:00",
+      scheduledSlot: "morning" as const,
+      want: null,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const result = decideSchedule("auto", {
+      nowIso: testCase.nowIso,
+      scheduledSlot: testCase.scheduledSlot,
+    });
+    const actual = result.action === "proceed" ? result.slot : null;
+    record(boolStatus(actual === testCase.want), "schedule-catchup", testCase.label);
+  }
 }
 
 function checkAgentCoverage(): void {
@@ -160,6 +204,21 @@ function checkGeneratedDigest(): void {
     const count = payload.sections?.[id]?.length ?? 0;
     record(count > 0 ? "pass" : "fail", "digest", `${id} stories selected: ${count}`);
   }
+  const selectedTitles = topics.flatMap((id) =>
+    (payload.sections?.[id] ?? []).map((article) => article.title)
+  );
+  const lowSignal = selectedTitles.filter((title) =>
+    /\b(my two cents|guest column|parody|teaches how to hear god|motley fool|buy this|stocks? that also pay dividends|prediction:|precision trading|risk zones|stocks? tumbling|stock traders daily|foreignpolicyjournal\.com)\b/i.test(
+      title
+    )
+  );
+  record(
+    boolStatus(lowSignal.length === 0),
+    "relevance",
+    lowSignal.length === 0
+      ? "No low-signal opinion/parody/soft-interest headlines selected"
+      : `Low-signal headlines selected: ${lowSignal.join(" | ")}`
+  );
 
   const bottom = payload.digestBottom;
   record(boolStatus(!!bottom), "supplements", "Digest bottom payload exists");
@@ -226,6 +285,7 @@ async function checkLiveReddit(): Promise<void> {
 
 async function main(): Promise<void> {
   checkScheduleWindows();
+  checkScheduledCatchup();
   checkWorkflowCron();
   checkAgentCoverage();
   checkFeedCoverage();

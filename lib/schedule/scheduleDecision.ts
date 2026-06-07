@@ -54,6 +54,48 @@ export function decideSchedule(
   }
 
   const w = checkSendWindow(nowEt, wm);
+  const scheduledSlot = options.scheduledSlot;
+
+  if (scheduledSlot) {
+    if (w.inWindow && w.slot === scheduledSlot) {
+      const slotKey = buildSlotKey(w.slotDate, scheduledSlot);
+      return {
+        action: "proceed",
+        reason: w.detail,
+        slotKey,
+        slot: scheduledSlot,
+        slotDate: w.slotDate,
+        window: w,
+      };
+    }
+
+    const hour = nowEt.hour;
+    const beforeTarget = scheduledSlot === "morning" ? hour < 9 : hour < 16;
+    const afterCatchupCutoff = scheduledSlot === "morning" ? hour >= 16 : false;
+    if (beforeTarget || afterCatchupCutoff) {
+      return {
+        action: "skip",
+        reason: `Scheduled ${scheduledSlot} trigger is outside its target/catch-up period: ${w.detail}`,
+      };
+    }
+
+    const slotDate = nowEt.toFormat("yyyy-MM-dd");
+    const catchupWindow: typeof w = {
+      inWindow: false,
+      slot: scheduledSlot,
+      slotDate,
+      detail: `Scheduled ${scheduledSlot} catch-up after GitHub queue delay (now ${nowEt.toFormat("HH:mm:ss")} ${EASTERN_TZ})`,
+    };
+    return {
+      action: "proceed",
+      reason: catchupWindow.detail,
+      slotKey: buildSlotKey(slotDate, scheduledSlot),
+      slot: scheduledSlot,
+      slotDate,
+      window: catchupWindow,
+    };
+  }
+
   if (!w.inWindow || !w.slot) {
     return {
       action: "skip",

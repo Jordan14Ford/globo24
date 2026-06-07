@@ -46,6 +46,7 @@ import {
   loadRecentlySentUrls,
 } from "../lib/content/sentArticles";
 import type { MasterCuratedOutput } from "../types/pipeline";
+import { compactEmailHtml } from "../lib/email/compactHtml";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -131,6 +132,23 @@ async function runTopicsPipeline(registry: ResolvedAgentRegistry): Promise<{
 
   const html = buildBrutalistHtml(master);
   const text = buildBrutalistPlain(master);
+  const counts = Object.entries(master.sections)
+    .map(([topic, stories]) => `${topic}=${stories.length}`)
+    .join(" ");
+  console.log(`[pipeline] Selected stories: ${counts}`);
+  if (master.digestBottom) {
+    const redditPosts = master.digestBottom.reddit.reduce(
+      (sum, section) => sum + section.posts.length,
+      0
+    );
+    const redditErrors = master.digestBottom.reddit.filter((section) => section.error).length;
+    console.log(
+      `[pipeline] Supplements: earnings=${master.digestBottom.earnings.rows.length} calls=${master.digestBottom.earningsCalls?.rows.length ?? 0} redditPosts=${redditPosts} redditErrors=${redditErrors}`
+    );
+  }
+  console.log(
+    `[pipeline] Compacted email HTML: ${Buffer.byteLength(compactEmailHtml(html), "utf8")} bytes`
+  );
 
   return { json: master, html, text };
 }
